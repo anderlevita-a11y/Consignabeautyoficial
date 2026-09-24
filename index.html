@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- SEO -->
+    <title>Consigna Beauty | Solução de Vendas para Consignação</title>
+    <meta name="description" content="Sistema completo de gestão para vendas consignadas, com controle financeiro, gestão de sacolas, insights inteligentes e automação de cobranças." />
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Consigna Beauty | Solução de Vendas para Consignação" />
+    <meta property="og:description" content="Gestão inteligente e profissional para suas vendas consignadas. Simplifique o acerto de sacolas e maximize seus lucros." />
+    <meta property="og:image" content="/src/assets/images/og_image_1787915955192.jpg" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/jpeg" href="/src/assets/images/app_favicon_1787915939764.jpg" />
+    
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#38a89d" />
+    <link rel="apple-touch-icon" href="/src/assets/images/app_favicon_1787915939764.jpg" />
+    
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('Service Worker registrado com sucesso:', reg.scope))
+            .catch(err => console.log('Falha ao registrar Service Worker:', err));
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
