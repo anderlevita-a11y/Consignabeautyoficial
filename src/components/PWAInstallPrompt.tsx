@@ -10,20 +10,33 @@ interface PWAInstallPromptProps {
 }
 
 export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onVisibilityChange, theme }) => {
-  const { isInstallable, isInstalled, isIOS, wasDismissed, install, dismiss } = usePWAInstall();
-  const [showIOSGuide, setShowIOSGuide] = useState(false);
+  const { isInstallable, isInstalled, isIOS, isMobile, wasDismissed, install, dismiss } = usePWAInstall();
+  const [showGuide, setShowGuide] = useState<'ios' | 'android' | null>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Show after a small delay if installable and not installed and never dismissed
-    if ((isInstallable || isIOS) && !isInstalled && !wasDismissed) {
+    if (isVisible) return; // Already visible
+
+    const checkState = () => {
+      console.log('[PWA] Checking visibility:', { 
+        isInstallable, 
+        isMobile, 
+        isInstalled, 
+        wasDismissed,
+        hasPrompt: !!isInstallable
+      });
+    };
+
+    // Show after a small delay if (installable or mobile) and not installed and never dismissed
+    if ((isInstallable || isMobile) && !isInstalled && !wasDismissed) {
+      checkState();
       const timer = setTimeout(() => {
         setIsVisible(true);
         if (onVisibilityChange) onVisibilityChange(true);
-      }, 1000);
+      }, 1500); // Slightly longer delay to allow beforeinstallprompt to fire
       return () => clearTimeout(timer);
     }
-  }, [isInstallable, isInstalled, isIOS, wasDismissed, onVisibilityChange]);
+  }, [isInstallable, isMobile, isInstalled, wasDismissed, onVisibilityChange]);
 
   if (isInstalled || wasDismissed || !isVisible) {
     return null;
@@ -37,13 +50,13 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onV
   };
 
   const handleInstall = async () => {
-    if (isIOS) {
-      setShowIOSGuide(true);
-    } else {
+    if (isInstallable) {
       const success = await install();
-      if (success) {
-        handleClose();
-      }
+      if (success) handleClose();
+    } else if (isIOS) {
+      setShowGuide('ios');
+    } else if (isMobile) {
+      setShowGuide('android');
     }
   };
 
@@ -114,7 +127,7 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onV
         </div>
       </div>
 
-      {showIOSGuide && (
+      {showGuide === 'ios' && (
         <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className={cn(
             "w-full max-w-sm rounded-[32px] p-8 space-y-6 text-center",
@@ -127,12 +140,39 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onV
               Instalar no iOS
             </h3>
             <div className="space-y-4 text-sm text-zinc-500 leading-relaxed text-left">
-              <p>1. Toque no botÃ£o <strong>Compartilhar</strong> (Ã­cone com uma seta para cima).</p>
-              <p>2. Role a lista e toque em <strong>Adicionar Ã  Tela de InÃ­cio</strong>.</p>
+              <p>1. Toque no botão <strong>Compartilhar</strong> (ícone com uma seta para cima).</p>
+              <p>2. Role a lista e toque em <strong>Adicionar à Tela de Início</strong>.</p>
               <p>3. Toque em <strong>Adicionar</strong> no canto superior direito.</p>
             </div>
             <button
-              onClick={() => setShowIOSGuide(false)}
+              onClick={() => setShowGuide(null)}
+              className="w-full py-4 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 rounded-2xl font-bold transition-all"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showGuide === 'android' && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className={cn(
+            "w-full max-w-sm rounded-[32px] p-8 space-y-6 text-center",
+            theme === 'dark' ? "bg-zinc-900" : "bg-white"
+          )}>
+            <div className="mx-auto w-20 h-20 rounded-[28%] overflow-hidden shadow-xl border-4 border-white dark:border-zinc-800 mb-4 animate-bounce">
+              <img src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
+            </div>
+            <h3 className={cn("text-xl font-bold", theme === 'dark' ? "text-zinc-100" : "text-zinc-800")}>
+              Instalar no Android
+            </h3>
+            <div className="space-y-4 text-sm text-zinc-500 leading-relaxed text-left">
+              <p>1. Toque nos <strong>três pontos</strong> (⋮) no canto superior direito.</p>
+              <p>2. Toque em <strong>Instalar Aplicativo</strong> ou <strong>Adicionar à tela inicial</strong>.</p>
+              <p>3. Confirme clicando em <strong>Instalar</strong>.</p>
+            </div>
+            <button
+              onClick={() => setShowGuide(null)}
               className="w-full py-4 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 rounded-2xl font-bold transition-all"
             >
               Entendido
