@@ -159,6 +159,7 @@ export default function App() {
 }
 
 import { CatalogSyncPrompt } from './components/CatalogSyncPrompt';
+import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
@@ -166,6 +167,7 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('profile');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showPWAInstall, setShowPWAInstall] = useState(false);
   const [legalSettings, setLegalSettings] = useState<AppLegalSettings | null>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
@@ -791,7 +793,12 @@ function AppContent() {
         onThemeChange={setTheme}
       />
       
-      <CatalogSyncPrompt />
+      <PWAInstallPrompt 
+        theme={theme} 
+        onVisibilityChange={setShowPWAInstall}
+      />
+      
+      {!showPWAInstall && <CatalogSyncPrompt />}
       
       <main className="flex-1 overflow-y-auto h-screen">
         <header className={cn(
