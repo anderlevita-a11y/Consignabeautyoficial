@@ -12,7 +12,8 @@ import {
   UserPlus,
   Search,
   RefreshCcw,
-  Calendar
+  Calendar,
+  Bluetooth
 } from 'lucide-react';
 import { supabase, isConfigured } from '../lib/supabase';
 import { Campaign, Bag, Customer } from '../types';
@@ -22,6 +23,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { PromptModal } from './PromptModal';
 import { PrintPreview } from './PrintPreview';
 import { useNotifications } from './NotificationCenter';
+import { K329PrintModal } from './K329PrintModal';
+import { K329ReceiptData } from '../lib/k329Printer';
 
 import { BagSettlement } from './BagSettlement';
 
@@ -50,6 +53,9 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
   const [showPreview, setShowPreview] = useState(false);
   const [pdfUrl, setPdfUrl] = useState('');
   const [previewType, setPreviewType] = useState<'termica' | 'a4' | 'etiqueta'>('termica');
+  const [showK329Modal, setShowK329Modal] = useState(false);
+  const [k329ReceiptData, setK329ReceiptData] = useState<K329ReceiptData | undefined>(undefined);
+  const [k329ModalTitle, setK329ModalTitle] = useState<string>('Imprimir na K329 (80mm Bluetooth)');
 
   // Date Prompt Modal State
   const [datePromptModal, setDatePromptModal] = useState<{
@@ -293,6 +299,79 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
       window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
     } catch (err) {
       console.error('Error sharing on WhatsApp:', err);
+    }
+  };
+
+  const handlePrintBagBluetooth = async (bag: Bag) => {
+    setPrinting(true);
+    try {
+      const { data: bagItemsData, error: bagItemsError } = await supabase
+        .from('bag_items')
+        .select('*')
+        .eq('bag_id', bag.id);
+
+      if (bagItemsError) throw bagItemsError;
+
+      const customerName = bag.customer?.nome || 'Cliente';
+      const customerCPF = bag.customer?.cpf || '---';
+      const dateStr = format(new Date(), 'dd/MM/yyyy HH:mm');
+
+      const itemsList = (bagItemsData || []).map((item: any) => {
+        const soldQty = item.quantity - (item.returned_quantity || 0);
+        return {
+          description: item.product_name || 'Produto',
+          qty: soldQty,
+          unitPrice: item.unit_price,
+          totalPrice: soldQty * item.unit_price
+        };
+      }).filter((i: any) => i.qty > 0);
+
+      const subtotal = itemsList.reduce((acc: number, item: any) => acc + item.totalPrice, 0);
+      const discountPct = campaign.discount_pct || 0;
+      const discountVal = discountPct > 0 ? (subtotal * discountPct) / 100 : 0;
+      const totalToPay = subtotal - discountVal;
+
+      const receipt: K329ReceiptData = {
+        header: {
+          storeName: 'CONSIGNA BEAUTY',
+          subtitle: campaign.name || 'Venda Consignada',
+          documentType: 'Acerto de Sacola (80mm)',
+          phone: bag.customer?.whatsapp || undefined
+        },
+        info: [
+          { label: 'Sacola', value: `#${bag.bag_number.replace(/\D/g, '')}` },
+          { label: 'Cliente', value: customerName },
+          { label: 'CPF', value: customerCPF },
+          { label: 'Campanha', value: campaign.name },
+          { label: 'Data', value: dateStr },
+          { label: 'Status', value: bag.status === 'closed' ? 'FECHADA' : 'EM ABERTO' }
+        ],
+        items: itemsList,
+        subtotal: subtotal,
+        discount: discountVal > 0 ? {
+          label: `Comissao (${discountPct}%)`,
+          value: discountVal
+        } : undefined,
+        total: totalToPay,
+        barcode: bag.bag_number.replace(/\D/g, '') || undefined,
+        footerNotes: [
+          'Agradecemos a sua parceria!',
+          'Consigna Beauty - Impressao K329 ESC/POS'
+        ]
+      };
+
+      setK329ReceiptData(receipt);
+      setK329ModalTitle(`Imprimir Sacola #${bag.bag_number.replace(/\D/g, '')} (K329 Bluetooth)`);
+      setShowK329Modal(true);
+    } catch (err: any) {
+      console.error('Erro ao preparar recibo K329:', err);
+      addNotification({
+        type: 'error',
+        title: 'Erro de Impressão',
+        message: err.message || 'Falha ao carregar dados da sacola para a impressora K329.'
+      });
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -806,9 +885,9 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
                             </button>
                           )}
                           <button 
-                            className="p-2.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 rounded-xl transition-all active:scale-95 disabled:opacity-50"
-                            title="Imprimir Nota"
-                            onClick={() => handlePrintBag(bag)}
+                            className="p-2.5 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 bg-emerald-50/50 border border-emerald-200/80 rounded-xl transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+                            title="Imprimir Térmica K329 (80mm Bluetooth ESC/POS 48 Colunas)"
+                            onClick={() => handlePrintBagBluetooth(bag)}
                             disabled={printing}
                           >
                             {printing ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Printer className="w-4.5 h-4.5" />}
@@ -981,6 +1060,13 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
           onClose={() => setShowPreview(false)} 
         />
       )}
+
+      <K329PrintModal 
+        isOpen={showK329Modal}
+        onClose={() => setShowK329Modal(false)}
+        receiptData={k329ReceiptData}
+        title={k329ModalTitle}
+      />
     </div>
   );
 }

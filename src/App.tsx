@@ -51,12 +51,21 @@ export default function App() {
     loadConditionalScript('stripe-buy-button', 'https://js.stripe.com/v3/buy-button.js');
 
     const params = new URLSearchParams(window.location.search);
+    const path = window.location.pathname;
+
     const s = params.get('s') || params.get('store');
     if (s) {
       setStoreSlug(s);
+    } else if (path.startsWith('/s/')) {
+      const slug = path.split('/s/')[1]?.split('?')[0]?.replace(/\/$/, '');
+      if (slug) setStoreSlug(slug);
+    } else if (path.startsWith('/loja/')) {
+      const slug = path.split('/loja/')[1]?.split('?')[0]?.replace(/\/$/, '');
+      if (slug) setStoreSlug(slug);
+    } else if (path.startsWith('/store/')) {
+      const slug = path.split('/store/')[1]?.split('?')[0]?.replace(/\/$/, '');
+      if (slug) setStoreSlug(slug);
     }
-
-    const path = window.location.pathname;
     
     // Check query parameters first (better for static hosting)
     const rifaParam = params.get('rifa');

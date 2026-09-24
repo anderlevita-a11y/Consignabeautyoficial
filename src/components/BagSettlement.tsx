@@ -16,7 +16,8 @@ import {
   RotateCcw,
   Package, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  Bluetooth
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import jsPDF from 'jspdf';
@@ -29,6 +30,8 @@ import { format } from 'date-fns';
 import { PrintPreview } from './PrintPreview';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
+import { K329PrintModal } from './K329PrintModal';
+import { K329ReceiptData } from '../lib/k329Printer';
 
 interface BagSettlementProps {
   bag: Bag;
@@ -69,6 +72,7 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     onConfirm: () => {}
   });
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showK329Modal, setShowK329Modal] = useState(false);
 
   const returnInputRef = useRef<HTMLInputElement>(null);
   const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
@@ -628,6 +632,65 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     }
   };
 
+  const getK329ReceiptData = (): K329ReceiptData => {
+    const customerName = bag.customer?.nome || 'Cliente';
+    const customerCPF = bag.customer?.cpf || '---';
+    const dateStr = format(new Date(), 'dd/MM/yyyy HH:mm');
+
+    const soldItems = items
+      .filter(i => (i.quantity - i.returned_quantity) > 0)
+      .map(i => {
+        const soldQty = i.quantity - i.returned_quantity;
+        return {
+          description: i.product.name,
+          qty: soldQty,
+          unitPrice: i.unit_price,
+          totalPrice: soldQty * i.unit_price
+        };
+      });
+
+    const pixCode = userProfile?.pix_key ? generatePixPayload(
+      userProfile.pix_key,
+      userProfile.pix_beneficiary || 'Beneficiario',
+      'BRASIL',
+      amountToPay,
+      `SAC${bag.bag_number.replace(/\D/g, '')}`
+    ) : undefined;
+
+    return {
+      header: {
+        storeName: 'CONSIGNA BEAUTY',
+        subtitle: 'Solucoes em Vendas Consignadas',
+        documentType: 'Acerto de Sacola',
+        phone: userProfile?.whatsapp || undefined
+      },
+      info: [
+        { label: 'Sacola', value: `#${bag.bag_number.replace(/\D/g, '')}` },
+        { label: 'Cliente', value: customerName },
+        { label: 'CPF', value: customerCPF },
+        { label: 'Data', value: dateStr },
+        { label: 'Status', value: bag.status === 'closed' ? 'FECHADA' : 'EM ABERTO' }
+      ],
+      items: soldItems,
+      subtotal: totalSold,
+      discount: campaignDiscount > 0 ? {
+        label: `Comissao (${campaignDiscount}%)`,
+        value: commission
+      } : undefined,
+      total: amountToPay,
+      payments: numericReceivedAmount > 0 ? [{
+        method: paymentMethod === 'pix' ? 'PIX' : paymentMethod === 'dinheiro' ? 'Dinheiro' : 'Cartao',
+        amount: numericReceivedAmount
+      }] : undefined,
+      pixQrCode: paymentMethod === 'pix' ? pixCode : undefined,
+      barcode: bag.bag_number.replace(/\D/g, '') || undefined,
+      footerNotes: [
+        'Agradecemos a sua parceria!',
+        'Consigna Beauty - Sistema de Gestao'
+      ]
+    };
+  };
+
   const handlePrintPDF = async () => {
     setSaving(true);
     try {
@@ -1171,8 +1234,18 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
                   onClick={handlePrintPDF}
                   disabled={saving}
                   className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 p-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
+                  title="Imprimir Relatório em PDF"
                 >
                   {saving ? <Loader2 className="w-6 h-6 animate-spin" /> : <Printer className="w-6 h-6" />}
+                </button>
+                <button 
+                  onClick={() => setShowK329Modal(true)}
+                  disabled={saving}
+                  className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 p-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-1.5 font-bold disabled:opacity-50 border border-emerald-200"
+                  title="Imprimir Térmica K329 (80mm Bluetooth SPP)"
+                >
+                  <Bluetooth className="w-5 h-5 text-emerald-600" />
+                  <span className="text-[11px] font-black tracking-wider hidden sm:inline">K329</span>
                 </button>
                 {bag.status === 'closed' ? (
                   <button 
@@ -1215,6 +1288,13 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
         variant={confirmModal.variant || 'warning'}
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <K329PrintModal 
+        isOpen={showK329Modal}
+        onClose={() => setShowK329Modal(false)}
+        receiptData={getK329ReceiptData()}
+        title={`Imprimir Sacola #${bag.bag_number.replace(/\D/g, '')} (K329)`}
       />
 
       {/* Feedback Overlay */}

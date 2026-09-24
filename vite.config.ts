@@ -6,10 +6,53 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+
+  const devApiPlugin: import('vite').Plugin = {
+    name: 'dev-api-endpoints',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/api/abacate-pay/create-link' && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => { body += chunk; });
+          req.on('end', async () => {
+            try {
+              const token = env.ABACATEPAY_TOKEN || process.env.ABACATEPAY_TOKEN;
+              if (!token) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ error: 'Configuração de pagamento incompleta (token ausente).' }));
+                return;
+              }
+              const upstream = await fetch('https://api.abacatepay.com/v2/payment-links/create', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body,
+              });
+              const data = await upstream.text();
+              res.statusCode = upstream.status;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(data);
+            } catch (err: any) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message }));
+            }
+          });
+          return;
+        }
+        next();
+      });
+    },
+  };
+
   return {
     plugins: [
       react(), 
       tailwindcss(),
+      devApiPlugin,
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
@@ -63,6 +106,10 @@ export default defineConfig(({mode}) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
