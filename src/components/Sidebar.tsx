@@ -36,6 +36,7 @@ import { Logo } from './Logo';
 import { Profile } from '../types';
 import { syncCatalog, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
 import { useNotifications } from './NotificationCenter';
+import { useBackButton } from '../hooks/useBackButton';
 
 interface SidebarProps {
   activeTab: string;
@@ -76,6 +77,21 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
   const [linkedProductIds, setLinkedProductIds] = useState<Set<string>>(new Set());
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const { addNotification } = useNotifications();
+
+  // Close preview modal on back button
+  useBackButton(() => {
+    setIsPreviewModalOpen(false);
+    return true;
+  }, isPreviewModalOpen);
+
+  // Close mobile sidebar drawer on back button
+  useBackButton(() => {
+    if (onClose) {
+      onClose();
+      return true;
+    }
+    return false;
+  }, !!isOpen);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

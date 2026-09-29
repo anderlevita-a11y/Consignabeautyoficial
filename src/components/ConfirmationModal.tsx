@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useBackButton } from '../hooks/useBackButton';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -26,6 +27,11 @@ export function ConfirmationModal({
   requiredText
 }: ConfirmationModalProps) {
   const [inputValue, setInputValue] = React.useState('');
+
+  useBackButton(() => {
+    onCancel();
+    return true;
+  }, isOpen);
 
   if (!isOpen) return null;
 

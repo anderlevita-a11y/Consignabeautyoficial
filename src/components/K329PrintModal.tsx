@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Printer, 
-  Bluetooth, 
   X, 
   CheckCircle2, 
   AlertCircle, 
@@ -12,9 +11,7 @@ import {
   Zap,
   HelpCircle,
   ExternalLink,
-  Smartphone,
   Copy,
-  Download,
   Check
 } from 'lucide-react';
 import { 
@@ -23,8 +20,6 @@ import {
   buildK329Receipt, 
   buildK329ReceiptPlainText,
   printThermal80mm,
-  printRawBT,
-  downloadK329Bin,
   K329ReceiptData, 
   K329CodePage, 
   K329ConnectionStatus,
@@ -66,15 +61,6 @@ export const K329PrintModal: React.FC<K329PrintModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleConnectBluetooth = async () => {
-    if (!driverRef.current) return;
-    try {
-      await driverRef.current.connectBluetooth();
-    } catch (err: any) {
-      console.error('Falha na conexão Bluetooth:', err);
-    }
-  };
-
   const handleConnectSerial = async () => {
     if (!driverRef.current) return;
     try {
@@ -115,18 +101,6 @@ export const K329PrintModal: React.FC<K329PrintModalProps> = ({
     if (!receiptData) return;
     const plainText = buildK329ReceiptPlainText(receiptData);
     printThermal80mm(plainText, title);
-  };
-
-  const handlePrintRawBT = () => {
-    if (!receiptData) return;
-    const bytes = buildK329Receipt(receiptData, codePage);
-    printRawBT(bytes);
-  };
-
-  const handleDownloadBin = () => {
-    if (!receiptData) return;
-    const bytes = buildK329Receipt(receiptData, codePage);
-    downloadK329Bin(bytes, `recibo-k329-${Date.now()}.bin`);
   };
 
   const handleCopyText = () => {
@@ -277,14 +251,6 @@ export const K329PrintModal: React.FC<K329PrintModalProps> = ({
                   <Zap className="w-3 h-3" />
                   Conectar Serial/SPP
                 </button>
-                <button
-                  onClick={handleConnectBluetooth}
-                  className="px-2.5 py-1 text-[11px] bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-bold flex items-center gap-1 shadow-sm"
-                  title="Conectar via Web Bluetooth GATT/SPP"
-                >
-                  <Bluetooth className="w-3 h-3" />
-                  Bluetooth
-                </button>
               </div>
             )}
           </div>
@@ -371,24 +337,6 @@ export const K329PrintModal: React.FC<K329PrintModalProps> = ({
                   >
                     {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     {copied ? 'Copiado!' : 'Copiar Texto'}
-                  </button>
-
-                  <button
-                    onClick={handleDownloadBin}
-                    className="px-2.5 py-1 text-xs bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg transition-colors flex items-center gap-1"
-                    title="Baixar binário ESC/POS (.bin)"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Baixar .BIN
-                  </button>
-
-                  <button
-                    onClick={handlePrintRawBT}
-                    className="px-2.5 py-1 text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg border border-purple-200 transition-colors flex items-center gap-1 font-semibold"
-                    title="Imprimir direto no aplicativo RawBT para Android"
-                  >
-                    <Smartphone className="w-3.5 h-3.5" />
-                    RawBT (Android)
                   </button>
                 </div>
               </div>

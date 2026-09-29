@@ -58,6 +58,20 @@ export function AdminPanel({ currentProfile }: { currentProfile: Profile | null 
   const [insightText, setInsightText] = useState('');
   const [savingInsights, setSavingInsights] = useState(false);
   const [syncingFavorita, setSyncingFavorita] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{
+    running: boolean;
+    progress: number;
+    currentCategory: string;
+    totalCategories: number;
+    categoryIndex: number;
+    results?: any;
+  }>({
+    running: false,
+    progress: 0,
+    currentCategory: '',
+    totalCategories: 10,
+    categoryIndex: 0
+  });
   const [expiredUsersModal, setExpiredUsersModal] = useState<{
     isOpen: boolean;
     users: Profile[];
@@ -797,12 +811,20 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
   const handleSyncFavorita = async () => {
     setConfirmModal({
       isOpen: true,
-      title: 'Sincronizar Favorita',
-      message: 'Deseja iniciar a sincronização de produtos do site da Favorita? Este processo pode levar alguns minutos.',
+      title: 'Sincronizar Catálogo Favorita',
+      message: 'O processamento pesado (Playwright + scraping + banco) roda em segundo plano através de Worker desacoplado do Event Loop. Você pode continuar utilizando o painel sem lentidão. Deseja iniciar?',
       variant: 'info',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
         setSyncingFavorita(true);
+        setSyncStatus({
+          running: true,
+          progress: 5,
+          currentCategory: 'Iniciando worker em background...',
+          totalCategories: 10,
+          categoryIndex: 0
+        });
+
         try {
           const response = await fetch('/api/sync-favorita', {
             method: 'POST',
@@ -811,38 +833,72 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
             }
           });
 
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Servidor retornou um erro inesperado.' }));
-            throw new Error(errorData.error || `Erro do servidor (${response.status})`);
+          const result = await response.json().catch(() => ({}));
+
+          if (!response.ok && response.status !== 202) {
+            throw new Error(result.error || result.message || `Erro do servidor (${response.status})`);
           }
 
-          const result = await response.json();
+          addNotification({
+            type: 'info',
+            title: 'Sincronização Iniciada (Background)',
+            message: 'O job de sincronização está rodando em segundo plano sem travar a interface.'
+          });
 
-          if (result.success) {
-            addNotification({
-              type: 'success',
-              title: 'Sincronização Concluída',
-              message: `Novos: ${result.results.new}, Alterados: ${result.results.updated}, Sem Mudança: ${result.results.normal}, Erros: ${result.results.errors}`
-            });
-            await fetchFavoritaReport();
-          } else {
-            throw new Error(result.error || 'Erro desconhecido na sincronização');
-          }
+          // Polling assíncrono não-bloqueante a cada 2 segundos
+          const pollInterval = window.setInterval(async () => {
+            try {
+              const statusRes = await fetch('/api/sync-favorita/status');
+              if (!statusRes.ok) return;
+              const { status } = await statusRes.json();
+              if (!status) return;
+
+              setSyncStatus({
+                running: status.status === 'running',
+                progress: status.progress || 0,
+                currentCategory: status.currentCategory || '',
+                totalCategories: status.totalCategories || 10,
+                categoryIndex: status.categoryIndex || 0,
+                results: status.results
+              });
+
+              if (status.status === 'completed') {
+                window.clearInterval(pollInterval);
+                setSyncingFavorita(false);
+                addNotification({
+                  type: 'success',
+                  title: 'Sincronização Concluída',
+                  message: `Novos: ${status.results.new}, Alterados: ${status.results.updated}, Sem Mudança: ${status.results.normal}, Erros: ${status.results.errors}`
+                });
+                await fetchFavoritaReport();
+              } else if (status.status === 'failed') {
+                window.clearInterval(pollInterval);
+                setSyncingFavorita(false);
+                addNotification({
+                  type: 'error',
+                  title: 'Falha no Worker',
+                  message: status.error || 'Erro inesperado no processo de sincronização.'
+                });
+              }
+            } catch (pollErr) {
+              console.warn('Polling do worker:', pollErr);
+            }
+          }, 2000);
         } catch (err: any) {
-          console.error('Error syncing Favorita:', err);
+          console.error('Error starting Favorita sync:', err);
           let errorMessage = formatError(err);
           
           if (err.message === 'Failed to fetch') {
-            errorMessage = 'O servidor backend não respondeu. Isso pode acontecer se ele ainda estiver iniciando, se houver um erro de configuração das chaves do Supabase no ambiente, ou se a requisição excedeu o tempo limite (Timeout). Tente novamente em alguns instantes.';
+            errorMessage = 'O servidor backend não respondeu. Verifique se o servidor está ativo.';
           }
 
           addNotification({
             type: 'error',
-            title: 'Erro na Sincronização',
+            title: 'Erro ao Iniciar Sincronização',
             message: errorMessage
           });
-        } finally {
           setSyncingFavorita(false);
+          setSyncStatus(prev => ({ ...prev, running: false }));
         }
       }
     });
@@ -1341,6 +1397,47 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
             </div>
           </div>
 
+          {/* Status Banner do Worker Concorrente em Segundo Plano */}
+          {syncStatus.running && (
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-5 space-y-3 animate-in fade-in duration-300">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
+                      Sincronização Ativa em Segundo Plano (Worker Desacoplado)
+                    </h4>
+                    <p className="text-[11px] text-emerald-800">
+                      Categoria {syncStatus.categoryIndex}/{syncStatus.totalCategories}: <strong>{syncStatus.currentCategory || 'Processando...'}</strong>
+                    </p>
+                  </div>
+                </div>
+                <span className="text-sm font-black font-mono text-emerald-700 bg-white px-3 py-1 rounded-lg border border-emerald-200 shadow-xs">
+                  {syncStatus.progress}%
+                </span>
+              </div>
+
+              {/* Barra de Progresso */}
+              <div className="w-full bg-emerald-200/60 rounded-full h-2.5 overflow-hidden">
+                <div 
+                  className="bg-emerald-600 h-2.5 rounded-full transition-all duration-500 ease-out" 
+                  style={{ width: `${Math.max(5, syncStatus.progress)}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-emerald-700/80 pt-0.5">
+                <span>⚡ O Event Loop principal está 100% liberado para requisições de outros usuários.</span>
+                {syncStatus.results && (
+                  <span className="font-mono font-bold">
+                    Novos: {syncStatus.results.new} | Alterados: {syncStatus.results.updated} | Normais: {syncStatus.results.normal}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Novos Produtos */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 px-2">
@@ -1680,22 +1777,6 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
               >
                 {showArchived ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
                 {showArchived ? 'VER ATIVOS' : 'VER ARQUIVADOS'}
-              </button>
-              <button
-                onClick={blockExpiredUsers}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-[10px] font-bold transition-all shadow-sm"
-              >
-                <Lock className="w-3 h-3" />
-                BLOQUEAR VENCIDOS
-              </button>
-              <button
-                onClick={handleSyncFavorita}
-                disabled={syncingFavorita}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl text-[10px] font-bold transition-all shadow-sm disabled:opacity-50"
-              >
-                {syncingFavorita ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
-                SINCRONIZAR FAVORITA
               </button>
             </div>
           </div>

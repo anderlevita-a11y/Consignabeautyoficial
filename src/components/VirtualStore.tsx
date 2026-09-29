@@ -28,6 +28,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/image-utils';
 import { StoreSettings, ProductReview } from '../types';
+import { useBackButton } from '../hooks/useBackButton';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 
@@ -90,6 +91,32 @@ export function VirtualStore({ slug }: { slug?: string }) {
   const [selectedColor, setSelectedColor] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storeFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle Android back button on virtual store modals
+  useBackButton(() => {
+    if (isPixModalOpen) {
+      setIsPixModalOpen(false);
+      return true;
+    }
+    if (isReviewing) {
+      setIsReviewing(false);
+      return true;
+    }
+    if (isStoreReviewOpen) {
+      setIsStoreReviewOpen(false);
+      return true;
+    }
+    if (isQuickViewOpen) {
+      setIsQuickViewOpen(false);
+      setSelectedProduct(null);
+      return true;
+    }
+    if (isCartOpen) {
+      setIsCartOpen(false);
+      return true;
+    }
+    return false;
+  }, isPixModalOpen || isReviewing || isStoreReviewOpen || isQuickViewOpen || isCartOpen);
 
   useEffect(() => {
     fetchData();

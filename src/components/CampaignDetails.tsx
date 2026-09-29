@@ -441,8 +441,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         setAvailableCampaigns([]);
         return;
       }
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
+      const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) return;
 

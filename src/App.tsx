@@ -30,11 +30,14 @@ import { PublicGoals } from './components/PublicGoals';
 import { PublicSweepstakes } from './components/PublicSweepstakes';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
 import { cn } from './lib/utils';
-import { supabase, isConfigured } from './lib/supabase';
+import { supabase, isConfigured, clearSupabaseAuth, isRefreshTokenError } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { StoreSettings as StoreSettingsType, ProductReview, Profile, AppLegalSettings } from './types';
 import { CookieBanner } from './components/CookieBanner';
 import { loadConditionalScript } from './lib/cookieConsent';
+import { AndroidExitToast } from './components/AndroidExitToast';
+import { useBackButton } from './hooks/useBackButton';
+import { BackHandler } from './lib/backHandler';
 
 import { NotificationProvider, NotificationCenter, SystemAlert, useNotifications } from './components/NotificationCenter';
 
@@ -113,6 +116,7 @@ export default function App() {
         <PublicRaffle />
         <CookieBanner />
         <NotificationCenter />
+        <AndroidExitToast />
       </NotificationProvider>
     );
   }
@@ -123,6 +127,7 @@ export default function App() {
         <PublicMysteryBag />
         <CookieBanner />
         <NotificationCenter />
+        <AndroidExitToast />
       </NotificationProvider>
     );
   }
@@ -133,6 +138,7 @@ export default function App() {
         <PublicGoals />
         <CookieBanner />
         <NotificationCenter />
+        <AndroidExitToast />
       </NotificationProvider>
     );
   }
@@ -143,6 +149,7 @@ export default function App() {
         <PublicSweepstakes />
         <CookieBanner />
         <NotificationCenter />
+        <AndroidExitToast />
       </NotificationProvider>
     );
   }
@@ -155,6 +162,7 @@ export default function App() {
         </div>
         <CookieBanner />
         <NotificationCenter />
+        <AndroidExitToast />
       </NotificationProvider>
     );
   }
@@ -163,6 +171,7 @@ export default function App() {
     <NotificationProvider>
       <AppContent />
       <CookieBanner />
+      <AndroidExitToast />
     </NotificationProvider>
   );
 }
@@ -181,6 +190,53 @@ function AppContent() {
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [rejectedReceipt, setRejectedReceipt] = useState<any>(null);
+
+  const tabHistoryRef = React.useRef<string[]>([]);
+  const isNavigatingBackRef = React.useRef(false);
+
+  const handleTabChange = React.useCallback((newTab: string) => {
+    setActiveTab(prevTab => {
+      if (prevTab !== newTab && !isNavigatingBackRef.current) {
+        tabHistoryRef.current.push(prevTab);
+      }
+      return newTab;
+    });
+  }, []);
+
+  // Intercept Android hardware Back button / swipe-back gesture to prevent closing the app
+  useBackButton(() => {
+    // 1. Close mobile drawer if open
+    if (isSidebarOpen) {
+      setIsSidebarOpen(false);
+      return true;
+    }
+
+    // 2. Close reset password modal if open
+    if (showResetPassword) {
+      setShowResetPassword(false);
+      return true;
+    }
+
+    // 3. Navigate back to previous tab if history exists
+    if (tabHistoryRef.current.length > 0) {
+      const prevTab = tabHistoryRef.current.pop()!;
+      isNavigatingBackRef.current = true;
+      setActiveTab(prevTab);
+      setTimeout(() => {
+        isNavigatingBackRef.current = false;
+      }, 50);
+      return true;
+    }
+
+    // 4. If on a sub-tab other than 'campaigns' (main dashboard), navigate to 'campaigns'
+    if (activeTab !== 'campaigns') {
+      setActiveTab('campaigns');
+      return true;
+    }
+
+    // 5. At root: let BackHandler trigger the double-press exit toast
+    return false;
+  }, true);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
     return (saved as 'light' | 'dark') || 'light';
@@ -245,23 +301,24 @@ function AppContent() {
 
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
-        console.error('Session error:', error.message);
-        if (
-          error.message.includes('Refresh Token Not Found') || 
-          error.message.includes('Invalid Refresh Token') ||
-          error.message.includes('refresh_token_not_found')
-        ) {
-          // Force clear session if token is invalid
-          supabase.auth.signOut().then(() => {
-            localStorage.removeItem('supabase.auth.token'); // Fallback for older versions
-            setSession(null);
-            setLoading(false);
-          });
+        if (isRefreshTokenError(error)) {
+          clearSupabaseAuth();
+          supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+          setSession(null);
+          setLoading(false);
           return;
         }
+        console.warn('Session check note:', error.message);
       }
       setSession(session);
       if (!session) setLoading(false);
+    }).catch((err) => {
+      if (isRefreshTokenError(err)) {
+        clearSupabaseAuth();
+        supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        setSession(null);
+        setLoading(false);
+      }
     });
 
     const {
@@ -272,6 +329,7 @@ function AppContent() {
       }
       
       if (event === 'SIGNED_OUT') {
+        clearSupabaseAuth();
         setSession(null);
         setProfile(null);
         setLoading(false);
@@ -286,16 +344,10 @@ function AppContent() {
 
     // Handle global auth refresh errors
     const handleError = (event: PromiseRejectionEvent) => {
-      const msg = event.reason?.message;
-      if (typeof msg === 'string' && (
-          msg.includes('Refresh Token Not Found') || 
-          msg.includes('Invalid Refresh Token') ||
-          msg.includes('refresh_token_not_found')
-      )) {
+      if (isRefreshTokenError(event.reason)) {
         event.preventDefault(); // Prevent the error from showing in the console
-        console.warn('Auth refresh failed, signing out...');
-        supabase.auth.signOut().catch(() => {});
-        localStorage.removeItem('supabase.auth.token');
+        clearSupabaseAuth();
+        supabase.auth.signOut({ scope: 'local' }).catch(() => {});
         setSession(null);
         setLoading(false);
       }
@@ -382,7 +434,7 @@ function AppContent() {
           type: 'price_change',
           title: 'Catálogo Atualizado',
           message: payload.payload?.message || 'O administrador adicionou novos produtos ou atualizou preços. Clique para conferir.',
-          onClick: () => setActiveTab('products')
+          onClick: () => handleTabChange('products')
         });
       })
       .subscribe();
@@ -400,7 +452,7 @@ function AppContent() {
           type: 'review',
           title: 'Nova Avaliação Recebida',
           message: `Você recebeu uma nova avaliação de ${payload.new.customer_name}.`,
-          onClick: () => setActiveTab('store-settings')
+          onClick: () => handleTabChange('store-settings')
         });
       })
       .subscribe();
@@ -466,7 +518,7 @@ function AppContent() {
               type,
               title,
               message,
-              onClick: () => setActiveTab('financial')
+              onClick: () => handleTabChange('financial')
             });
           }
         });
@@ -478,7 +530,7 @@ function AppContent() {
     };
 
     checkFinancialReminders();
-  }, [session]);
+  }, [session, handleTabChange]);
 
   useEffect(() => {
     if (!profile) return;
@@ -500,27 +552,27 @@ function AppContent() {
           type: 'warning',
           title: 'Vencimento Próximo',
           message: 'Seu plano vence em 7 dias. Realize o pagamento para evitar interrupções.',
-          onClick: () => setActiveTab('profile')
+          onClick: () => handleTabChange('profile')
         });
       } else if (diffDays === 0) {
         addNotification({
           type: 'error',
           title: 'Vencimento Hoje',
           message: 'Seu plano vence hoje! Realize o pagamento para manter seu acesso.',
-          onClick: () => setActiveTab('profile')
+          onClick: () => handleTabChange('profile')
         });
       } else if (diffDays < 0) {
          addNotification({
           type: 'error',
           title: 'Plano Vencido',
           message: 'Seu plano está vencido. Realize o pagamento para reativar seu acesso.',
-          onClick: () => setActiveTab('profile')
+          onClick: () => handleTabChange('profile')
         });
       }
     };
 
     checkPlanExpiration();
-  }, [profile]);
+  }, [profile, handleTabChange]);
 
   useEffect(() => {
     if (!session || !isConfigured) return;
@@ -601,7 +653,7 @@ function AppContent() {
             title: 'Acesso Liberado!',
             message: 'Sua chave de acesso foi ativada. Agora você tem acesso total ao painel.'
           });
-          setActiveTab('campaigns');
+          handleTabChange('campaigns');
         }
       })
       .subscribe();
@@ -613,11 +665,11 @@ function AppContent() {
 
   useEffect(() => {
     const handleSetTab = (e: any) => {
-      if (e.detail) setActiveTab(e.detail);
+      if (e.detail) handleTabChange(e.detail);
     };
     window.addEventListener('setTab', handleSetTab);
     return () => window.removeEventListener('setTab', handleSetTab);
-  }, []);
+  }, [handleTabChange]);
 
   useEffect(() => {
     if (session) {
@@ -789,11 +841,11 @@ function AppContent() {
   return (
     <div className={cn(
       "flex min-h-screen font-sans selection:bg-emerald-500/30 selection:text-emerald-900 transition-colors duration-300",
-      theme === 'dark' ? "bg-zinc-950 text-zinc-100" : "bg-[#f8f9fa] text-zinc-800"
+      theme === 'dark' ? "bg-zinc-950 text-zinc-100" : "bg-[#fff8f8] text-zinc-800"
     )}>
       <Sidebar 
         activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
+        setActiveTab={handleTabChange} 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         profile={profile}
@@ -857,7 +909,7 @@ function AppContent() {
                   )}
                 </p>
                 <button 
-                  onClick={() => setActiveTab('profile')}
+                  onClick={() => handleTabChange('profile')}
                   className="mt-3 text-[10px] font-bold text-red-600 uppercase tracking-widest hover:underline"
                 >
                   Ir para Perfil e Enviar Novo Comprovante

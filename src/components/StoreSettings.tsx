@@ -19,8 +19,7 @@ import {
   Search,
   Tag,
   ChevronDown,
-  Copy,
-  ExternalLink
+  Copy
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Product, ProductReview } from '../types';
@@ -642,13 +641,6 @@ export function StoreSettings() {
                   title="Copiar Link da Loja"
                 >
                   <Copy className="w-5 h-5" />
-                </button>
-                <button 
-                  onClick={() => settings.store_slug && window.open(`/?s=${settings.store_slug}`, '_blank')}
-                  className="p-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all"
-                  title="Visualizar Loja"
-                >
-                  <ExternalLink className="w-5 h-5" />
                 </button>
               </div>
               <p className="text-[10px] text-zinc-400 mt-1 italic">Este será o link que você enviará para suas clientes.</p>

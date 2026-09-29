@@ -43,6 +43,51 @@ export default defineConfig(({mode}) => {
           });
           return;
         }
+
+        if (req.url === '/api/sync-favorita' && req.method === 'POST') {
+          (async () => {
+            try {
+              const { SyncJobRunner } = await import('./server/jobs/sync-job-runner');
+              const { createClient } = await import('@supabase/supabase-js');
+              const supabaseUrl = env.SUPABASE_URL || process.env.SUPABASE_URL || env.VITE_SUPABASE_URL;
+              const supabaseKey = env.SUPABASE_KEY || process.env.SUPABASE_KEY || env.SUPABASE_ANON_KEY;
+              if (!supabaseUrl || !supabaseKey) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: false, error: 'Supabase URL/Key não configurados.' }));
+                return;
+              }
+              const supabase = createClient(supabaseUrl, supabaseKey);
+              const result = SyncJobRunner.getInstance().startJob(supabase);
+              res.statusCode = result.started ? 202 : 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: result.started, ...result }));
+            } catch (err: any) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            }
+          })();
+          return;
+        }
+
+        if (req.url === '/api/sync-favorita/status' && req.method === 'GET') {
+          (async () => {
+            try {
+              const { SyncJobRunner } = await import('./server/jobs/sync-job-runner');
+              const status = SyncJobRunner.getInstance().getStatus();
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: true, status }));
+            } catch (err: any) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            }
+          })();
+          return;
+        }
+
         next();
       });
     },

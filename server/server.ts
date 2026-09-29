@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import cron from "node-cron";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import { SyncJobRunner } from "./jobs/sync-job-runner";
 
 dotenv.config();
 
@@ -360,25 +361,41 @@ async function startServer() {
 
   // Schedule Favorita Sync: Every Monday at 08:00
   cron.schedule("0 8 * * 1", async () => {
-    console.log("Running scheduled Favorita Sync...");
+    console.log("Running scheduled Favorita Sync (Decoupled background job)...");
     try {
       const supabase = getSupabase();
-      await runFavoritaSync(supabase);
+      SyncJobRunner.getInstance().startJob(supabase);
     } catch (err) {
       console.error("Scheduled sync failed (Supabase not configured):", err);
     }
   });
 
-  // API Route for manual Favorita Sync - applying heavy limiter
-  app.post("/api/sync-favorita", heavyApiLimiter, async (req, res) => {
+  // API Route for starting Favorita Sync - immediately returns 202 Accepted (Non-blocking)
+  app.post("/api/sync-favorita", heavyApiLimiter, (req, res) => {
     try {
       const supabase = getSupabase();
-      const result = await runFavoritaSync(supabase);
-      if (result.success) {
-        res.json(result);
+      const result = SyncJobRunner.getInstance().startJob(supabase);
+      if (result.started) {
+        res.status(202).json({
+          success: true,
+          ...result,
+        });
       } else {
-        res.status(500).json(result);
+        res.status(409).json({
+          success: false,
+          ...result,
+        });
       }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Route for polling Favorita Sync status and progress in real-time
+  app.get("/api/sync-favorita/status", generalApiLimiter, (req, res) => {
+    try {
+      const status = SyncJobRunner.getInstance().getStatus();
+      res.json({ success: true, status });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

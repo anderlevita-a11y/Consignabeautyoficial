@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Loader2, Lock, Eye, EyeOff } from 'lucide-react';
+import { useBackButton } from '../hooks/useBackButton';
 
 interface ResetPasswordModalProps {
   onClose: () => void;
 }
 
 export function ResetPasswordModal({ onClose }: ResetPasswordModalProps) {
+  useBackButton(() => {
+    onClose();
+    return true;
+  }, true);
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

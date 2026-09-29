@@ -18,22 +18,21 @@ import {
   X,
   ShieldAlert,
   Sparkles,
-  Send
+  Send,
+  Copy,
+  Check,
+  QrCode
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/image-utils';
 import { Profile, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
-
-declare module "react" {
-  namespace JSX {
-    interface IntrinsicElements {
-      "stripe-buy-button": any;
-    }
-  }
-}
+import { useBackButton } from '../hooks/useBackButton';
+import { BackHandler } from '../lib/backHandler';
 
 export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
@@ -47,6 +46,93 @@ export function ProfileScreen() {
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
   const { addNotification } = useNotifications();
+
+  const [paymentOption, setPaymentOption] = useState<'proportional' | 'full'>('proportional');
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedPayload, setCopiedPayload] = useState(false);
+
+  // Cálculo do Pagamento Proporcional até o fechamento (dia 08)
+  const proportionalInfo = (() => {
+    const today = new Date();
+    let next8th = new Date(today.getFullYear(), today.getMonth(), 8, 23, 59, 59);
+    if (today.getDate() >= 8) {
+      next8th.setMonth(next8th.getMonth() + 1);
+    }
+    const diffTime = next8th.getTime() - today.getTime();
+    const remainingDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    // Valor diário aproximado: 39.99 / 30 = 1.333
+    const calculated = (39.99 / 30) * remainingDays;
+    const value = Math.min(39.99, Math.max(5.00, Number(calculated.toFixed(2))));
+    return {
+      days: remainingDays,
+      value,
+      nextDate: next8th,
+      formattedDate: next8th.toLocaleDateString('pt-BR')
+    };
+  })();
+
+  const currentPayAmount = paymentOption === 'proportional' ? proportionalInfo.value : 39.99;
+
+  // Gerar QR Code e Pix Copia e Cola via padrão Banco Central
+  const pixPayload = generatePixPayload(
+    '26384051000158',
+    'Anderson Rodrigues de morais',
+    'Itapema',
+    currentPayAmount,
+    'ASSINATURA'
+  );
+
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText('26384051000158');
+    setCopiedKey(true);
+    addNotification({
+      type: 'success',
+      title: 'Chave PIX Copiada',
+      message: 'Chave CNPJ 26.384.051/0001-58 copiada com sucesso!'
+    });
+    setTimeout(() => setCopiedKey(false), 2500);
+  };
+
+  const handleCopyPayload = () => {
+    navigator.clipboard.writeText(pixPayload);
+    setCopiedPayload(true);
+    addNotification({
+      type: 'success',
+      title: 'Pix Copia e Cola Copiado',
+      message: 'Código PIX Copia e Cola copiado com sucesso! Abra o app do seu banco para colar.'
+    });
+    setTimeout(() => setCopiedPayload(false), 2500);
+  };
+
+  const [backButtonProtection, setBackButtonProtection] = useState(() => {
+    return localStorage.getItem('android_back_protection') !== 'false';
+  });
+
+  const toggleBackButtonProtection = () => {
+    const nextVal = !backButtonProtection;
+    setBackButtonProtection(nextVal);
+    BackHandler.setEnabled(nextVal);
+    localStorage.setItem('android_back_protection', String(nextVal));
+    addNotification({
+      type: 'info',
+      title: nextVal ? 'Bloqueio do Botão Voltar Ativo' : 'Bloqueio do Botão Voltar Desativado',
+      message: nextVal 
+        ? 'O botão Voltar do Android agora intercepta o fechamento e fecha modais/telas primeiro.'
+        : 'A proteção contra fechamento acidental foi desativada.'
+    });
+  };
+
+  useBackButton(() => {
+    if (showViewer) {
+      setShowViewer(false);
+      return true;
+    }
+    if (showLegalModal) {
+      setShowLegalModal(false);
+      return true;
+    }
+    return false;
+  }, showViewer || showLegalModal);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -61,7 +147,6 @@ export function ProfileScreen() {
     variant: 'info',
     onConfirm: () => {}
   });
-  const [creatingPayment, setCreatingPayment] = useState(false);
 
   useEffect(() => {
     async function fetchReceipts(userId: string) {
@@ -100,54 +185,6 @@ export function ProfileScreen() {
     }
     fetchProfile();
   }, []);
-
-  const handleAbacatePay = async (planId: string) => {
-    setCreatingPayment(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error('Usuário não autenticado');
-
-      const response = await fetch('/api/abacate-pay/create-link', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          frequency: "MULTIPLE_PAYMENTS",
-          items: [
-            {
-              id: planId,
-              quantity: 1
-            }
-          ],
-          methods: ["PIX", "CARD"]
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Erro ao criar link de pagamento');
-
-      if (data.data?.url) {
-        window.open(data.data.url, '_blank');
-        addNotification({
-          type: 'success',
-          title: 'Link Gerado',
-          message: 'O link de pagamento foi aberto em uma nova aba.'
-        });
-      } else {
-        throw new Error('URL de pagamento não retornada');
-      }
-    } catch (err: any) {
-      console.error(err);
-      addNotification({
-        type: 'error',
-        title: 'Erro no Pagamento',
-        message: formatError(err)
-      });
-    } finally {
-      setCreatingPayment(false);
-    }
-  };
 
   const handleUploadReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -500,14 +537,6 @@ export function ProfileScreen() {
           <h2 className="text-xl sm:text-2xl font-bold text-[#4a1d33]">Meu Cadastro</h2>
           <p className="text-sm text-zinc-500">Mantenha seus dados atualizados para melhor experiência.</p>
         </div>
-        <button 
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center justify-center gap-2 bg-[#38a89d] hover:bg-[#2d8a81] text-white px-8 py-3 rounded-xl font-bold transition-all shadow-sm disabled:opacity-50"
-        >
-          {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-          Salvar
-        </button>
       </div>
 
       {/* Dados Pessoais */}
@@ -769,232 +798,330 @@ export function ProfileScreen() {
         </div>
       </section>
 
-      {/* Status de Acesso */}
-      <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center gap-3">
-          <ShieldCheck className="w-5 h-5 text-emerald-600" />
-          <h3 className="font-bold text-zinc-800">Status de Acesso</h3>
+      {/* Botão Salvar Cadastro (abaixo da sessão de cadastro, antes da sessão pagamento) */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 sm:p-6 bg-white border border-zinc-200 rounded-2xl shadow-sm">
+        <div className="space-y-1">
+          <h4 className="text-sm font-bold text-zinc-800">Finalizou o preenchimento dos seus dados?</h4>
+          <p className="text-xs text-zinc-500">Salve suas alterações cadastrais (dados pessoais, endereço e sua chave PIX de atendimento).</p>
         </div>
-        <div className="p-4 sm:p-6 space-y-6">
-          <div className="bg-zinc-50 rounded-2xl p-4 sm:p-6 border border-zinc-100 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status do Acesso</p>
-              <h4 className="text-lg font-bold text-zinc-800 flex items-center gap-2">
-                {profile?.role === 'admin' ? 'Administrador' : (['pro', 'starter'].includes(profile?.plano_tipo) ? 'Assinatura Mensal' : (isTrial ? 'Período de Teste' : (profile?.access_key_code ? 'Assinatura Mensal Liberada' : 'Aguardando Liberação')))}
-                {(profile?.role === 'admin' || profile?.access_key_code || ['pro', 'starter'].includes(profile?.plano_tipo)) && (
-                  <span className={cn("text-[10px] px-2 py-0.5 rounded-lg uppercase font-bold", isTrial ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700")}>
-                    {isTrial ? 'Trial' : 'Ativo'}
-                  </span>
-                )}
-              </h4>
-              {profile?.vencimento && (
-                <div className="mt-2 p-3 bg-white border border-zinc-100 rounded-xl shadow-sm">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Data de Vencimento</p>
-                  <p className="text-sm font-bold text-zinc-800">{new Date(profile.vencimento).toLocaleDateString()}</p>
-                </div>
-              )}
+        <button 
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#38a89d] hover:bg-[#2d8a81] text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-md shadow-emerald-500/10 disabled:opacity-50 text-sm whitespace-nowrap cursor-pointer"
+        >
+          {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+          Salvar Dados do Cadastro
+        </button>
+      </div>
 
-              {/* Pro-rated Table */}
-              <div className="mt-4 p-4 bg-white border border-zinc-100 rounded-2xl shadow-sm space-y-3">
-                <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Valor Proporcional (Até dia 08)</h5>
-                <div className="grid grid-cols-1 gap-3">
-                  <div className="p-2 bg-purple-50 rounded-lg border border-purple-100">
-                    <p className="text-[9px] text-purple-600 font-bold uppercase">Assinatura Mensal</p>
-                    <p className="text-sm font-black text-purple-900">R$ {(() => {
-                      const payDate = new Date();
-                      let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
-                      if (payDate.getDate() >= 8) next8th.setMonth(next8th.getMonth() + 1);
-                      const diffTime = next8th.getTime() - payDate.getTime();
-                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                      return ((39.99 / 30) * diffDays).toFixed(2);
-                    })()}</p>
-                  </div>
-                </div>
-                <p className="text-[9px] text-zinc-400 italic">
-                  * Valores calculados com base no uso proporcional até o próximo fechamento (dia 08).
-                </p>
-              </div>
-
-              {/* Receipt Upload Section */}
-              <div className="mt-6 space-y-4">
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-zinc-200"></div>
-                  </div>
-                  <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
-                    <span className="bg-zinc-50 px-4 text-zinc-400">Pagamento e Comprovante</span>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm space-y-6">
-                  <div className="flex flex-col items-center text-center space-y-4">
-                    <div className="w-full max-w-[280px] aspect-[3/4] bg-zinc-50 rounded-2xl border border-zinc-100 overflow-hidden flex items-center justify-center relative group">
-                      <img 
-                        src="https://hxvgjlyibrksarogqoge.supabase.co/storage/v1/object/public/receipts/pague%20pix.png" 
-                        alt="QR Code PIX NuBank" 
-                        className="w-full h-full object-contain p-4"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <p className="text-[10px] font-bold text-zinc-500 bg-white/90 px-3 py-1.5 rounded-full shadow-sm">Escaneie para Pagar</p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold text-zinc-800">Pague via PIX</p>
-                      <p className="text-[10px] text-zinc-500 uppercase tracking-widest leading-relaxed">
-                        Escaneie o código acima ou use a chave CNPJ:<br/>
-                        <strong className="text-zinc-800">26.384.051/0001-58</strong>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="block">
-                      <span className="sr-only">Escolher arquivo</span>
-                      <div className={cn(
-                        "w-full flex flex-col items-center justify-center gap-3 py-8 border-2 border-dashed rounded-2xl transition-all cursor-pointer",
-                        uploadingReceipt ? "bg-zinc-50 border-zinc-200" : "bg-emerald-50/30 border-emerald-200 hover:bg-emerald-50/50 hover:border-emerald-300"
-                      )}>
-                        {uploadingReceipt ? (
-                          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-                        ) : (
-                          <Upload className="w-8 h-8 text-emerald-500" />
-                        )}
-                        <div className="text-center">
-                          <p className="text-sm font-bold text-emerald-700">
-                            {uploadingReceipt ? 'Enviando...' : 'Enviar Comprovante'}
-                          </p>
-                          <p className="text-[10px] text-emerald-600 font-medium">PNG, JPG ou PDF até 5MB</p>
-                        </div>
-                        <input 
-                          type="file" 
-                          className="hidden" 
-                          accept="image/*,.pdf"
-                          onChange={handleUploadReceipt}
-                          disabled={uploadingReceipt}
-                        />
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                {/* List of Receipts */}
-                {receipts.length > 0 && (
-                  <div className="space-y-3">
-                    <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest px-2">Meus Comprovantes Enviados</h5>
-                    <div className="grid grid-cols-1 gap-2">
-                      {receipts.map((receipt) => (
-                        <div key={receipt.id} className="bg-white border border-zinc-100 rounded-xl p-3 flex items-center justify-between shadow-sm">
-                          <div className="flex items-center gap-3">
-                            <div className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center",
-                              receipt.status === 'approved' ? "bg-emerald-50 text-emerald-600" :
-                              receipt.status === 'rejected' ? "bg-red-50 text-red-600" :
-                              "bg-amber-50 text-amber-600"
-                            )}>
-                              <FileText className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold text-zinc-800">
-                                {new Date(receipt.created_at).toLocaleDateString()} às {new Date(receipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                              <p className={cn(
-                                "text-[9px] font-bold uppercase tracking-widest",
-                                receipt.status === 'approved' ? "text-emerald-500" :
-                                receipt.status === 'rejected' ? "text-red-500" :
-                                "text-amber-500"
-                              )}>
-                                {receipt.status === 'approved' ? 'Aprovado' : 
-                                 receipt.status === 'rejected' ? 'Reprovado' : 
-                                 'Em Análise'}
-                              </p>
-                              {receipt.status === 'rejected' && receipt.rejection_reason && (
-                                <p className="text-[10px] text-red-600 mt-1 leading-tight max-w-[200px]">
-                                  {receipt.rejection_reason}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <a 
-                            href={receipt.receipt_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="p-2 hover:bg-zinc-50 rounded-lg text-zinc-400 transition-colors"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {isTrial && (
-                <p className={cn("text-xs font-bold mt-1", diffDays > 1 ? "text-blue-600" : (diffDays === 1 ? "text-amber-600" : "text-red-600"))}>
-                  {diffDays > 1 ? `Faltam ${diffDays} dias para o fim do teste` : (diffDays === 1 ? 'Termina amanhã' : 'Teste expirado')}
-                </p>
-              )}
-              {['pro', 'starter'].includes(profile?.plano_tipo) && <p className="text-xs text-emerald-600 font-bold">Assinatura Mensal Ativa</p>}
+      {/* Sessão de Pagamento da Assinatura do Sistema (PIX) */}
+      <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <CreditCard className="w-5 h-5" />
             </div>
-            <div className="flex-1 max-w-md space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
-                <ShieldCheck className="w-3 h-3" /> Identificador de Acesso
-              </label>
+            <div>
+              <h3 className="font-bold text-zinc-800">Pagamento da Assinatura do Sistema</h3>
+              <p className="text-xs text-zinc-500">Liberação de acesso via PIX com ativação rápida</p>
+            </div>
+          </div>
+          <span className="text-xs font-mono font-bold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg uppercase">
+            {profile?.role === 'admin' ? 'Administrador' : (isTrial ? 'Período de Teste' : 'Assinatura')}
+          </span>
+        </div>
+
+        <div className="p-4 sm:p-6 space-y-6">
+          {/* Status e Identificador de Acesso */}
+          <div className="bg-zinc-50 rounded-2xl p-4 sm:p-5 border border-zinc-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block">Status da Conta</span>
+              <p className="text-base font-bold text-zinc-800 flex items-center gap-2">
+                {profile?.role === 'admin' ? 'Acesso Total Administrador' : (['pro', 'starter'].includes(profile?.plano_tipo) ? 'Assinatura Mensal Ativa' : (isTrial ? 'Período de Teste Ativo' : (profile?.access_key_code ? 'Assinatura Liberada' : 'Aguardando Ativação')))}
+              </p>
+              {profile?.vencimento && (
+                <p className="text-xs text-zinc-500">
+                  Vencimento atual: <strong className="text-zinc-700">{new Date(profile.vencimento).toLocaleDateString()}</strong>
+                </p>
+              )}
+              {isTrial && (
+                <p className={cn("text-xs font-bold", diffDays > 1 ? "text-blue-600" : (diffDays === 1 ? "text-amber-600" : "text-red-600"))}>
+                  {diffDays > 1 ? `Faltam ${diffDays} dias para o fim do seu teste grátis` : (diffDays === 1 ? 'Seu teste termina amanhã' : 'Teste grátis expirado')}
+                </p>
+              )}
+            </div>
+
+            <div className="md:w-72 space-y-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Identificador de Acesso
+              </span>
               <input 
                 type="text" 
                 readOnly
-                value={profile?.access_key_code || (['pro', 'starter'].includes(profile?.plano_tipo) ? 'ASSINATURA_MENSAL' : 'Acesso não liberado')} 
-                className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-500 font-mono outline-none shadow-sm cursor-not-allowed"
+                value={profile?.access_key_code || (['pro', 'starter'].includes(profile?.plano_tipo) ? 'ASSINATURA_MENSAL' : 'LIBERACAO_PENDENTE')} 
+                className="w-full bg-white border border-zinc-200 rounded-xl px-3.5 py-2 text-xs font-mono text-zinc-600 outline-none shadow-sm cursor-not-allowed"
               />
-              <p className="text-[10px] text-zinc-400">O seu acesso é liberado manualmente pelo administrador ou via Assinatura Mensal (R$ 39,99/mês).</p>
-              
-              {(profile?.role === 'admin' || !['pro', 'starter'].includes(profile?.plano_tipo)) && (
-                <div className="mt-8 space-y-8">
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-zinc-200"></div>
-                    </div>
-                    <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
-                      <span className="bg-zinc-50 px-4 text-zinc-400">Escolha seu Plano</span>
-                    </div>
-                  </div>
+              <p className="text-[10px] text-zinc-400">Liberação confirmada após envio do comprovante.</p>
+            </div>
+          </div>
 
-                  <div className="grid grid-cols-1 gap-6">
-                    {/* Plano Starter - AbacatePay */}
-                    <div className="bg-purple-50 border border-purple-100 rounded-[32px] p-8 space-y-6 shadow-sm transition-all hover:shadow-md">
-                      <div className="flex items-center justify-between">
+          {/* 1. Seletor de Modalidade: Proporcional vs Completa */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-zinc-800">1. Escolha a Modalidade de Pagamento</h4>
+              <span className="text-xs text-zinc-400 font-medium">Fechamento do mês: Todo dia 08</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Opção Proporcional */}
+              <button
+                type="button"
+                onClick={() => setPaymentOption('proportional')}
+                className={cn(
+                  "p-4 rounded-2xl border-2 text-left transition-all relative flex flex-col justify-between cursor-pointer",
+                  paymentOption === 'proportional'
+                    ? "bg-emerald-50/50 border-emerald-500 shadow-sm"
+                    : "bg-white border-zinc-200 hover:border-zinc-300"
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                      Novos Assinantes
+                    </span>
+                    <h5 className="font-bold text-zinc-800 text-sm mt-1.5">Pagamento Proporcional (Até dia 08)</h5>
+                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                      Pague somente pelos <strong>{proportionalInfo.days} dias</strong> restantes até o fechamento fixo do sistema em {proportionalInfo.formattedDate}.
+                    </p>
+                  </div>
+                  <div className={cn(
+                    "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5",
+                    paymentOption === 'proportional' ? "border-emerald-600 bg-emerald-600" : "border-zinc-300"
+                  )}>
+                    {paymentOption === 'proportional' && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-zinc-100 flex items-baseline gap-1">
+                  <span className="text-xs font-bold text-zinc-500">R$</span>
+                  <span className="text-2xl font-black text-emerald-600 font-mono tabular-nums">
+                    {proportionalInfo.value.toFixed(2).replace('.', ',')}
+                  </span>
+                  <span className="text-[11px] text-zinc-400 font-medium ml-1">proporcional até dia 08</span>
+                </div>
+              </button>
+
+              {/* Opção Integral */}
+              <button
+                type="button"
+                onClick={() => setPaymentOption('full')}
+                className={cn(
+                  "p-4 rounded-2xl border-2 text-left transition-all relative flex flex-col justify-between cursor-pointer",
+                  paymentOption === 'full'
+                    ? "bg-purple-50/50 border-purple-500 shadow-sm"
+                    : "bg-white border-zinc-200 hover:border-zinc-300"
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
+                      Mensalidade Completa
+                    </span>
+                    <h5 className="font-bold text-zinc-800 text-sm mt-1.5">Pagamento Completo (30 Dias)</h5>
+                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                      Acesso integral por 30 dias completos para renovação regular da sua assinatura.
+                    </p>
+                  </div>
+                  <div className={cn(
+                    "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5",
+                    paymentOption === 'full' ? "border-purple-600 bg-purple-600" : "border-zinc-300"
+                  )}>
+                    {paymentOption === 'full' && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-zinc-100 flex items-baseline gap-1">
+                  <span className="text-xs font-bold text-zinc-500">R$</span>
+                  <span className="text-2xl font-black text-purple-600 font-mono tabular-nums">
+                    39,99
+                  </span>
+                  <span className="text-[11px] text-zinc-400 font-medium ml-1">/mês completo</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* 2. QR Code e Chave PIX */}
+          <div className="bg-zinc-50 rounded-2xl p-4 sm:p-6 border border-zinc-100 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-200/80 pb-3">
+              <div>
+                <h4 className="text-sm font-bold text-zinc-800">2. Pague via PIX com QR Code ou Copia e Cola</h4>
+                <p className="text-xs text-zinc-500">
+                  Valor a pagar: <strong className="text-emerald-700 text-sm font-bold font-mono">R$ {currentPayAmount.toFixed(2).replace('.', ',')}</strong>
+                </p>
+              </div>
+              <div className="text-left sm:text-right">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-widest block">Beneficiário da Conta</span>
+                <span className="text-xs font-bold text-zinc-800">Anderson Rodrigues de morais</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+              {/* QR Code Container */}
+              <div className="lg:col-span-5 flex flex-col items-center justify-center">
+                <div className="p-4 bg-white rounded-2xl border border-zinc-200 shadow-sm flex flex-col items-center">
+                  <QRCodeSVG 
+                    value={pixPayload} 
+                    size={190}
+                    level="M"
+                    includeMargin={false}
+                  />
+                  <p className="text-[10px] text-zinc-400 mt-2 font-medium flex items-center gap-1">
+                    <QrCode className="w-3.5 h-3.5 text-emerald-600" /> Escaneie com o aplicativo do seu banco
+                  </p>
+                </div>
+              </div>
+
+              {/* Chaves e Copia e Cola */}
+              <div className="lg:col-span-7 space-y-4">
+                {/* Chave CNPJ */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                    <span>Chave PIX (CNPJ)</span>
+                    <span className="text-zinc-600 font-medium">Anderson Rodrigues de morais</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value="26.384.051/0001-58"
+                      className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-zinc-800 outline-none shadow-sm cursor-text"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyKey}
+                      className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-900 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 shadow-sm cursor-pointer"
+                    >
+                      {copiedKey ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      {copiedKey ? 'Copiado!' : 'Copiar CNPJ'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Código Pix Copia e Cola */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between">
+                    <span>Código PIX Copia e Cola</span>
+                    <span className="text-emerald-600 font-bold font-mono">R$ {currentPayAmount.toFixed(2).replace('.', ',')}</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={pixPayload}
+                      className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-2.5 text-xs font-mono text-zinc-500 truncate outline-none shadow-sm cursor-text"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyPayload}
+                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 shadow-sm shadow-emerald-600/20 cursor-pointer"
+                    >
+                      {copiedPayload ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      {copiedPayload ? 'Copiado!' : 'Copiar Código'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-zinc-400">
+                    Copie este código e use a opção <strong>"PIX Copia e Cola"</strong> no aplicativo do seu banco.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Envio da Foto do Comprovante */}
+          <div className="space-y-4 pt-2">
+            <h4 className="text-sm font-bold text-zinc-800">3. Envie a Foto do Comprovante de Pagamento</h4>
+            
+            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <label className="block cursor-pointer">
+                <span className="sr-only">Escolher foto do comprovante</span>
+                <div className={cn(
+                  "w-full flex flex-col items-center justify-center gap-3 py-7 border-2 border-dashed rounded-2xl transition-all",
+                  uploadingReceipt 
+                    ? "bg-zinc-50 border-zinc-200 cursor-not-allowed" 
+                    : "bg-emerald-50/30 border-emerald-300 hover:bg-emerald-50/60 hover:border-emerald-400"
+                )}>
+                  {uploadingReceipt ? (
+                    <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+                      <Upload className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-zinc-800">
+                      {uploadingReceipt ? 'Enviando comprovante...' : 'Clique para selecionar a foto ou PDF do comprovante'}
+                    </p>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">Formatos suportados: PNG, JPG ou PDF (máx. 5MB)</p>
+                  </div>
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    accept="image/*,.pdf"
+                    onChange={handleUploadReceipt}
+                    disabled={uploadingReceipt}
+                  />
+                </div>
+              </label>
+
+              {/* Lista de Comprovantes Enviados */}
+              {receipts.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-zinc-100">
+                  <h5 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                    Meus Comprovantes Enviados ({receipts.length})
+                  </h5>
+                  <div className="grid grid-cols-1 gap-2">
+                    {receipts.map((receipt) => (
+                      <div key={receipt.id} className="bg-zinc-50 border border-zinc-200/80 rounded-xl p-3 flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center text-purple-600">
-                            <Sparkles className="w-6 h-6" />
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center",
+                            receipt.status === 'approved' ? "bg-emerald-100 text-emerald-700" :
+                            receipt.status === 'rejected' ? "bg-red-100 text-red-700" :
+                            "bg-amber-100 text-amber-700"
+                          )}>
+                            <FileText className="w-4 h-4" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-purple-900">Assinatura Mensal</h4>
-                            <p className="text-xs text-purple-600">Pagamento via AbacatePay</p>
+                            <p className="text-xs font-bold text-zinc-800">
+                              Enviado em {new Date(receipt.created_at).toLocaleDateString()} às {new Date(receipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                            <span className={cn(
+                              "text-[10px] font-bold uppercase tracking-wider inline-block",
+                              receipt.status === 'approved' ? "text-emerald-600" :
+                              receipt.status === 'rejected' ? "text-red-600" :
+                              "text-amber-600"
+                            )}>
+                              {receipt.status === 'approved' ? '✓ Aprovado e Liberado' : 
+                               receipt.status === 'rejected' ? '✗ Reprovado' : 
+                               '⏳ Em Análise pelo Administrador'}
+                            </span>
+                            {receipt.status === 'rejected' && receipt.rejection_reason && (
+                              <p className="text-[10px] text-red-600 mt-0.5">Motivo: {receipt.rejection_reason}</p>
+                            )}
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="flex items-baseline justify-end gap-1">
-                            <span className="text-sm font-bold text-purple-900">R$</span>
-                            <span className="text-3xl font-black text-purple-900 tracking-tight">39,99</span>
-                          </div>
-                          <span className="text-[10px] text-purple-500 font-bold uppercase tracking-widest">/mês</span>
-                        </div>
-                      </div>
 
-                      <button 
-                        onClick={() => window.open('https://app.abacatepay.com/pay/bill_gDcujhxNTcxyw0FQ1ZDaWpn2', '_blank')}
-                        className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white w-full py-4 rounded-2xl font-bold transition-all shadow-lg shadow-purple-500/20"
-                      >
-                        <CreditCard className="w-5 h-5" />
-                        Assinar com AbacatePay
-                      </button>
-                      
-                      <p className="text-[10px] text-purple-700 text-center font-medium">
-                        Liberação via PIX ou Cartão usando AbacatePay.
-                      </p>
-                    </div>
+                        <a 
+                          href={receipt.receipt_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-100 rounded-lg text-xs font-bold text-zinc-700 transition-colors flex items-center gap-1 shadow-sm"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> Ver
+                        </a>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1003,29 +1130,143 @@ export function ProfileScreen() {
         </div>
       </section>
 
+      {/* Comportamento do Aplicativo no Celular / Android */}
+      <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-zinc-800">Botão Voltar & Navegação Android</h3>
+              <p className="text-xs text-zinc-500">Controle do comportamento do botão físico e gestos de voltar</p>
+            </div>
+          </div>
+
+          <button
+            onClick={toggleBackButtonProtection}
+            className={cn(
+              "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+              backButtonProtection 
+                ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/20 hover:bg-emerald-600" 
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            )}
+          >
+            <span className={cn(
+              "w-2 h-2 rounded-full",
+              backButtonProtection ? "bg-white animate-pulse" : "bg-zinc-400"
+            )} />
+            {backButtonProtection ? 'Proteção Ativa' : 'Proteção Desativada'}
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100 flex flex-col gap-1">
+              <span className="text-xs font-bold text-zinc-800">1. Fechamento de Modais</span>
+              <p className="text-[11px] text-zinc-500">
+                Pressionar "Voltar" fecha a gaveta lateral, caixas de diálogo ou telas abertas sem sair do app.
+              </p>
+            </div>
+            <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100 flex flex-col gap-1">
+              <span className="text-xs font-bold text-zinc-800">2. Histórico de Abas</span>
+              <p className="text-[11px] text-zinc-500">
+                Retorna para a tela visitada anteriormente antes de ir para a página inicial.
+              </p>
+            </div>
+            <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100 flex flex-col gap-1">
+              <span className="text-xs font-bold text-zinc-800">3. Confirmação para Sair</span>
+              <p className="text-[11px] text-zinc-500">
+                Na página inicial, exige toque duplo com aviso sonoro/visual para fechar o aplicativo.
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-zinc-400">
+            Dica: No Android instalado (PWA ou navegador), esta proteção impede o encerramento acidental do sistema durante o acerto de sacolas ou preenchimento de dados.
+          </p>
+        </div>
+      </section>
+
       {/* Governança e Direitos do Titular (LGPD) */}
       <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center gap-3">
-          <ShieldCheck className="w-5 h-5 text-emerald-600" />
-          <h3 className="font-bold text-zinc-800">Governança e Direitos do Titular (LGPD)</h3>
+        <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-zinc-800">Governança e Direitos do Titular (LGPD)</h3>
+              <p className="text-xs text-zinc-500">Conformidade integral com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018)</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold font-mono text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2.5 py-1 rounded-lg">
+            LEI Nº 13.709/2018
+          </span>
         </div>
-        <div className="p-4 sm:p-6 space-y-8">
+
+        <div className="p-4 sm:p-6 space-y-6">
+          {/* Destaque Explicito: Direito à Exclusão / Eliminação dos Dados (Art. 18, VI da LGPD) */}
+          <div className="bg-red-50/50 rounded-2xl p-5 sm:p-6 border border-red-200 space-y-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 shrink-0 mt-0.5">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-base font-bold text-red-900">
+                    Direito à Exclusão e Eliminação Definitiva de Dados Pessoais
+                  </h4>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 px-2 py-0.5 rounded-md">
+                    Art. 18, Inciso VI da LGPD
+                  </span>
+                </div>
+                <p className="text-xs text-red-800/80 leading-relaxed">
+                  Conforme assegurado pelo <strong>Artigo 18, inciso VI da Lei Geral de Proteção de Dados (LGPD)</strong>, você tem o direito inalienável de solicitar a <strong>eliminação total e definitiva</strong> de todos os seus dados pessoais e dados de terceiros tratados sob o seu consentimento nesta plataforma.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white/90 border border-red-100 rounded-xl p-4 space-y-2 text-xs text-zinc-700">
+              <p className="font-bold text-zinc-800">Garantias e escopo da exclusão:</p>
+              <ul className="list-disc list-inside space-y-1 text-zinc-600 pl-1">
+                <li>Eliminação do seu login de acesso, dados cadastrais, e-mail e identificadores;</li>
+                <li>Exclusão permanente de todos os clientes, contatos, sacolas consignadas e acertos vinculados;</li>
+                <li>Remoção definitiva de fotos de documentos pessoais e comprovantes de pagamento do armazenamento em nuvem;</li>
+                <li>Operação irreversível: após confirmada, nenhum dado poderá ser recuperado.</li>
+              </ul>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+              <p className="text-[11px] text-zinc-500 italic">
+                * Para sua segurança contra exclusões acidentais, será exigida a digitação da palavra "EXCLUIR".
+              </p>
+              <button 
+                onClick={handleDeleteAccount}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-red-600/20 whitespace-nowrap cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                Solicitar Exclusão Definitiva dos Meus Dados (LGPD)
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* DPO Channel */}
-            <div className="bg-zinc-50 rounded-2xl p-6 border border-zinc-100 space-y-4">
+            {/* Canal do DPO */}
+            <div className="bg-zinc-50 rounded-2xl p-5 border border-zinc-100 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
                   <Smartphone className="w-5 h-5" />
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-zinc-800">Encarregado de Dados (DPO)</h4>
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Canal Direto LGPD</p>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Canal Direto de Atendimento LGPD</p>
                 </div>
               </div>
               <p className="text-xs text-zinc-600 leading-relaxed">
-                Para exercer seus direitos de acesso, retificação ou dúvidas sobre como tratamos seus dados, entre em contato com nosso Encarregado.
+                Para exercer seus direitos de confirmação de tratamento, acesso, correção ou revogação de consentimento, fale diretamente com nosso Encarregado de Proteção de Dados:
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-1">
                 <a 
                   href="tel:47997626121" 
                   className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 text-zinc-700 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
@@ -1033,50 +1274,31 @@ export function ProfileScreen() {
                   47 997626121
                 </a>
                 <a 
-                  href="https://wa.me/5547997626121?text=Olá,%20gostaria%20de%20falar%20com%20o%20DPO%20sobre%20meus%20dados." 
+                  href="https://wa.me/5547997626121?text=Olá,%20gostaria%20de%20falar%20com%20o%20DPO%20sobre%20meus%20dados%20conforme%20a%20LGPD." 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all shadow-sm shadow-emerald-500/20"
                 >
                   <Send className="w-4 h-4" />
-                  WHATSAPP
+                  WHATSAPP DO DPO
                 </a>
               </div>
             </div>
 
-            {/* Deletion Rights */}
-            <div className="bg-red-50/30 rounded-2xl p-6 border border-red-100 space-y-4">
+            {/* Compromisso com a Privacidade */}
+            <div className="bg-zinc-50 rounded-2xl p-5 border border-zinc-100 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
-                  <Trash2 className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-red-800">Direito ao Esquecimento</h4>
-                  <p className="text-[10px] text-red-500 uppercase tracking-widest">Exclusão de Conta</p>
+                  <h4 className="text-sm font-bold text-zinc-800">Segurança & Criptografia</h4>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Proteção Técnica de Dados</p>
                 </div>
               </div>
-              <p className="text-xs text-red-700/70 leading-relaxed">
-                Solicite a exclusão total e definitiva de todos os seus dados pessoais, históricos e documentos de nossos servidores. <strong>Esta ação não pode ser desfeita.</strong>
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                Suas informações de negócio e de clientes são tratadas com criptografia SSL/TLS, políticas rigorosas de isolamento por usuário (Row Level Security) e backups diários para garantir confidencialidade absoluta.
               </p>
-              <button 
-                onClick={handleDeleteAccount}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-red-200 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all shadow-sm"
-              >
-                EXCLUIR TODOS OS MEUS DADOS
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-zinc-50 rounded-2xl p-4 border border-blue-100">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="w-4 h-4 text-blue-600 mt-0.5" />
-              <div className="space-y-1">
-                <h5 className="text-[10px] font-black text-blue-900 uppercase tracking-widest">Compromisso com a Privacidade</h5>
-                <p className="text-[10px] text-blue-800/70 leading-relaxed">
-                  Nossa política de governança de dados assegura que suas informações são utilizadas exclusivamente para o funcionamento do sistema, 
-                  com criptografia e backups seguros. Você possui total controle e transparência sobre o ciclo de vida dos seus dados.
-                </p>
-              </div>
             </div>
           </div>
         </div>
