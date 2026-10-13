@@ -65,6 +65,12 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     isOpen: false
   });
 
+  const [currentCampaign, setCurrentCampaign] = useState<Campaign>(campaign);
+
+  useEffect(() => {
+    setCurrentCampaign(campaign);
+  }, [campaign]);
+
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -565,22 +571,53 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
 
   const handleUpdateReturnDate = async (targetCampaign: Campaign, newDate: string) => {
     try {
+      if (!isConfigured) {
+        addNotification({
+          type: 'warning',
+          title: 'Supabase não conectado',
+          message: 'As credenciais do Supabase não estão configuradas. Por favor, verifique suas variáveis de ambiente.'
+        });
+        return;
+      }
+
+      if (!newDate || !newDate.trim()) {
+        addNotification({
+          type: 'warning',
+          title: 'Data inválida',
+          message: 'Por favor, selecione uma data válida para o retorno da campanha.'
+        });
+        return;
+      }
+
+      const formattedNewDate = newDate.trim();
       const todayStr = new Date().toISOString().split('T')[0];
-      const oldReturnDateStr = targetCampaign.return_date ? new Date(targetCampaign.return_date).toISOString().split('T')[0] : null;
+      let oldReturnDateStr: string | null = null;
+      try {
+        if (targetCampaign.return_date) {
+          const parsed = new Date(targetCampaign.return_date);
+          if (!isNaN(parsed.getTime())) {
+            oldReturnDateStr = parsed.toISOString().split('T')[0];
+          }
+        }
+      } catch {}
 
       // Logic from CampaignForm.tsx for recycling
-      if (oldReturnDateStr && oldReturnDateStr < todayStr && newDate >= todayStr) {
-        // Mark all open bags as 'overdue' before updating the campaign
-        await supabase
-          .from('bags')
-          .update({ status: 'overdue' })
-          .eq('campaign_id', targetCampaign.id)
-          .eq('status', 'open');
+      if (oldReturnDateStr && oldReturnDateStr < todayStr && formattedNewDate >= todayStr) {
+        try {
+          // Mark all open bags as 'overdue' before updating the campaign
+          await supabase
+            .from('bags')
+            .update({ status: 'overdue' })
+            .eq('campaign_id', targetCampaign.id)
+            .eq('status', 'open');
+        } catch (bagErr) {
+          console.warn('Aviso ao marcar sacolas como vencidas:', bagErr);
+        }
       }
 
       const { error } = await supabase
         .from('campaigns')
-        .update({ return_date: newDate })
+        .update({ return_date: formattedNewDate })
         .eq('id', targetCampaign.id);
 
       if (error) throw error;
@@ -591,12 +628,12 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         message: 'A data de retorno foi atualizada com sucesso.'
       });
 
-      // Update local campaign state if needed or just refresh parent
-      // Since campaign is a prop, we might need to notify parent or just let it refresh on next view
-      // For now, let's just refresh the bags to reflect any status changes
+      // Update local campaign state so header updates immediately
+      setCurrentCampaign(prev => ({ ...prev, return_date: formattedNewDate }));
+      targetCampaign.return_date = formattedNewDate;
       fetchBags();
-    } catch (err) {
-      console.error('Error updating return date:', err);
+    } catch (err: any) {
+      console.warn('Aviso ao atualizar data de retorno:', err);
       addNotification({
         type: 'error',
         title: 'Erro ao atualizar data',
@@ -691,14 +728,14 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-zinc-800">{campaign.name}</h2>
-            <p className="text-sm text-zinc-500">Campanha Ativa • {campaign.discount_pct}% de Desconto</p>
+            <h2 className="text-2xl font-bold text-zinc-800">{currentCampaign.name}</h2>
+            <p className="text-sm text-zinc-500">Campanha Ativa • {currentCampaign.discount_pct}% de Desconto</p>
           </div>
           <div 
-            onClick={() => setDatePromptModal({ isOpen: true, campaign })}
+            onClick={() => setDatePromptModal({ isOpen: true, campaign: currentCampaign })}
             className={cn(
               "flex items-center gap-3 px-5 py-3 rounded-2xl border cursor-pointer transition-all active:scale-95 group",
-              campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
+              currentCampaign.return_date && new Date(currentCampaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
                 ? "bg-red-50 border-red-100 text-red-600 hover:bg-red-100"
                 : "bg-zinc-50 border-zinc-100 text-zinc-600 hover:bg-zinc-100"
             )}
@@ -706,7 +743,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
           >
             <div className={cn(
               "p-2 rounded-xl transition-colors",
-              campaign.return_date && new Date(campaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
+              currentCampaign.return_date && new Date(currentCampaign.return_date) < new Date(new Date().setHours(0, 0, 0, 0))
                 ? "bg-red-100 text-red-600"
                 : "bg-white text-zinc-400 group-hover:text-emerald-600"
             )}>
@@ -714,7 +751,9 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
             </div>
             <div className="text-left">
               <p className="text-[10px] font-bold uppercase tracking-wider opacity-60">Data de Retorno</p>
-              <p className="text-base font-bold">{format(new Date(campaign.return_date || ''), "dd/MM/yyyy")}</p>
+              <p className="text-base font-bold">
+                {currentCampaign.return_date ? format(new Date(currentCampaign.return_date), "dd/MM/yyyy") : 'Não definida'}
+              </p>
             </div>
           </div>
         </div>
@@ -945,7 +984,15 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
         title="Alterar Data de Retorno"
         message={`Selecione a nova data de retorno para a campanha "${datePromptModal.campaign?.name}":`}
         type="date"
-        defaultValue={datePromptModal.campaign?.return_date ? new Date(datePromptModal.campaign.return_date).toISOString().split('T')[0] : ''}
+        defaultValue={(() => {
+          if (!datePromptModal.campaign?.return_date) return '';
+          try {
+            const d = new Date(datePromptModal.campaign.return_date);
+            return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+          } catch {
+            return '';
+          }
+        })()}
         onConfirm={(value) => datePromptModal.campaign && handleUpdateReturnDate(datePromptModal.campaign, value)}
         onCancel={() => setDatePromptModal({ isOpen: false })}
       />

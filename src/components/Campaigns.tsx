@@ -197,22 +197,53 @@ export function Campaigns() {
 
   const handleUpdateReturnDate = async (campaign: Campaign, newDate: string) => {
     try {
+      if (!isConfigured) {
+        addNotification({
+          type: 'warning',
+          title: 'Supabase não conectado',
+          message: 'As credenciais do Supabase não estão configuradas. Por favor, verifique suas variáveis de ambiente.'
+        });
+        return;
+      }
+
+      if (!newDate || !newDate.trim()) {
+        addNotification({
+          type: 'warning',
+          title: 'Data inválida',
+          message: 'Por favor, selecione uma data válida para o retorno da campanha.'
+        });
+        return;
+      }
+
+      const formattedNewDate = newDate.trim();
       const todayStr = new Date().toISOString().split('T')[0];
-      const oldReturnDateStr = campaign.return_date ? new Date(campaign.return_date).toISOString().split('T')[0] : null;
+      let oldReturnDateStr: string | null = null;
+      try {
+        if (campaign.return_date) {
+          const parsed = new Date(campaign.return_date);
+          if (!isNaN(parsed.getTime())) {
+            oldReturnDateStr = parsed.toISOString().split('T')[0];
+          }
+        }
+      } catch {}
 
       // Logic from CampaignForm.tsx for recycling
-      if (oldReturnDateStr && oldReturnDateStr < todayStr && newDate >= todayStr) {
-        // Mark all open bags as 'overdue' before updating the campaign
-        await supabase
-          .from('bags')
-          .update({ status: 'overdue' })
-          .eq('campaign_id', campaign.id)
-          .eq('status', 'open');
+      if (oldReturnDateStr && oldReturnDateStr < todayStr && formattedNewDate >= todayStr) {
+        try {
+          // Mark all open bags as 'overdue' before updating the campaign
+          await supabase
+            .from('bags')
+            .update({ status: 'overdue' })
+            .eq('campaign_id', campaign.id)
+            .eq('status', 'open');
+        } catch (bagErr) {
+          console.warn('Aviso ao marcar sacolas como vencidas:', bagErr);
+        }
       }
 
       const { error } = await supabase
         .from('campaigns')
-        .update({ return_date: newDate })
+        .update({ return_date: formattedNewDate })
         .eq('id', campaign.id);
 
       if (error) throw error;
@@ -223,9 +254,11 @@ export function Campaigns() {
         message: 'A data de retorno foi atualizada com sucesso.'
       });
 
+      // Optimistically update local list
+      setCampaigns(prev => prev.map(c => c.id === campaign.id ? { ...c, return_date: formattedNewDate } : c));
       fetchCampaigns();
-    } catch (err) {
-      console.error('Error updating return date:', err);
+    } catch (err: any) {
+      console.warn('Aviso ao atualizar data de retorno:', err);
       addNotification({
         type: 'error',
         title: 'Erro ao atualizar data',
@@ -439,7 +472,15 @@ export function Campaigns() {
         title="Alterar Data de Retorno"
         message={`Selecione a nova data de retorno para a campanha "${datePromptModal.campaign?.name}":`}
         type="date"
-        defaultValue={datePromptModal.campaign?.return_date ? new Date(datePromptModal.campaign.return_date).toISOString().split('T')[0] : ''}
+        defaultValue={(() => {
+          if (!datePromptModal.campaign?.return_date) return '';
+          try {
+            const d = new Date(datePromptModal.campaign.return_date);
+            return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+          } catch {
+            return '';
+          }
+        })()}
         onConfirm={(value) => datePromptModal.campaign && handleUpdateReturnDate(datePromptModal.campaign, value)}
         onCancel={() => setDatePromptModal({ isOpen: false })}
       />

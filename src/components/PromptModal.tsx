@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 
 interface PromptModalProps {
@@ -27,6 +27,12 @@ export function PromptModal({
   cancelText = 'Cancelar'
 }: PromptModalProps) {
   const [value, setValue] = useState(defaultValue);
+
+  useEffect(() => {
+    if (isOpen) {
+      setValue(defaultValue || '');
+    }
+  }, [isOpen, defaultValue]);
 
   if (!isOpen) return null;
 

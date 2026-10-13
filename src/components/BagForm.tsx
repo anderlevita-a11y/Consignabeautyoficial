@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, X, Search, ShoppingBag, User, Package, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Save, X, Search, ShoppingBag, User, Package, Trash2, CheckCircle2, AlertCircle, Loader2, UserPlus, Plus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Product, Customer } from '../types';
 import { cn, formatError, doesProductMatchBarcode, isBarcodeMatch, isStrictBarcodeMatch, getProductDisplayCode, stripLeadingZeros } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
+import { CustomerForm } from './CustomerForm';
+import { QuickProductModal } from './QuickProductModal';
 import { sanitizeString } from '../lib/sanitizer';
 
 interface BagFormProps {
@@ -28,6 +30,9 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showNewProductModal, setShowNewProductModal] = useState(false);
+  const [quickProductQuery, setQuickProductQuery] = useState('');
   const [notes, setNotes] = useState('');
   const [noStock, setNoStock] = useState(false);
   const [isInstallmentPlan, setIsInstallmentPlan] = useState(false);
@@ -82,6 +87,47 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
   useEffect(() => {
     fetchInitialData();
   }, []);
+
+  const handleCustomerCreated = (newCustomer?: Customer) => {
+    setShowCustomerModal(false);
+    if (newCustomer) {
+      setCustomers(prev => {
+        const exists = prev.some(c => c.id === newCustomer.id);
+        return exists ? prev : [newCustomer, ...prev];
+      });
+      setSelectedCustomer(newCustomer.id);
+      setCustomerSearch('');
+      addNotification({
+        type: 'success',
+        title: 'Cliente Cadastrada',
+        message: `Cliente "${newCustomer.nome}" cadastrada e vinculada à sacola!`
+      });
+    } else {
+      fetchInitialData();
+    }
+  };
+
+  const handleOpenQuickProductModal = (query?: string) => {
+    setQuickProductQuery(query !== undefined ? query : productSearch);
+    setShowNewProductModal(true);
+  };
+
+  const handleProductCreated = (newProduct: Product, autoAdd: boolean) => {
+    setProducts(prev => {
+      const exists = prev.some(p => p.id === newProduct.id);
+      return exists ? prev : [newProduct, ...prev];
+    });
+
+    if (autoAdd) {
+      addItem(newProduct);
+    }
+    
+    setProductSearch('');
+    if (productInputRef.current) {
+      productInputRef.current.value = '';
+    }
+    focusProductInput();
+  };
 
   async function fetchInitialData() {
     try {
@@ -633,11 +679,18 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Sacolas</h2>
+        <div>
+          <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">
+            {bagId ? 'Editar Sacola' : 'Nova Sacola'}
+          </h2>
+          <p className="text-xs text-zinc-400 font-medium">
+            {bagId ? 'Atualize os produtos e detalhes da sacola' : 'Adicione produtos e vincule à cliente consignatária'}
+          </p>
+        </div>
         <button 
           onClick={handleSubmit}
           disabled={loading}
-          className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
+          className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto active:scale-95"
         >
           <Save className="w-4 h-4" />
           Salvar Sacola
@@ -652,51 +705,108 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                 <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
                   <X className="w-5 h-5 text-zinc-400" />
                 </button>
-                <h3 className="font-serif italic text-xl text-zinc-700">Montagem da Sacola</h3>
+                <div>
+                  <h3 className="font-serif italic text-xl text-zinc-700">
+                    {bagId ? 'Edição da Sacola' : 'Montagem da Sacola'}
+                  </h3>
+                  <span className="text-[11px] text-zinc-400 font-sans">
+                    {bagId ? 'Altere itens ou cliente' : 'Sessão Nova Sacola'}
+                  </span>
+                </div>
               </div>
-              <div className="w-full sm:flex-1 sm:max-w-xs sm:ml-8 relative">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Cliente (Opcional)</label>
+              <div className="w-full sm:flex-1 sm:max-w-sm sm:ml-6 relative">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">
+                  Cliente (Opcional)
+                </label>
                 {selectedCustomer ? (
                   <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">
-                    <span className="text-sm font-bold text-emerald-800">
+                    <span className="text-sm font-bold text-emerald-800 truncate mr-2">
                       {customers.find(c => c.id === selectedCustomer)?.nome}
                     </span>
                     <button 
+                      type="button"
                       onClick={() => {
                         setSelectedCustomer('');
                         setCustomerSearch('');
                       }}
-                      className="text-emerald-600 hover:text-emerald-800"
+                      className="text-emerald-600 hover:text-emerald-800 p-1"
+                      title="Remover cliente da sacola"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
                   <div className="relative">
-                    <input 
-                      type="text" 
-                      placeholder="Digite o nome ou CPF..."
-                      value={customerSearch}
-                      onChange={(e) => setCustomerSearch(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all"
-                    />
-                    {filteredCustomers.length > 0 && (
-                      <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
-                        {filteredCustomers.map(c => (
-                          <button 
-                            key={c.id}
-                            onClick={() => {
-                              setSelectedCustomer(c.id);
-                              setCustomerSearch('');
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-zinc-50 text-left border-b border-zinc-50 last:border-0"
-                          >
-                            <div>
-                              <p className="text-sm font-bold text-zinc-800">{c.nome}</p>
-                              <p className="text-[10px] text-zinc-400">CPF: {c.cpf || '---'}</p>
+                    <div className="flex items-center gap-1.5">
+                      <div className="relative flex-1">
+                        <input 
+                          type="text" 
+                          placeholder="Buscar cliente por nome ou CPF..."
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-2 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomerModal(true)}
+                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shrink-0 transition-all active:scale-95 shadow-sm"
+                        title="Cadastrar Nova Cliente"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Nova Cliente</span>
+                      </button>
+                    </div>
+
+                    {customerSearch && (
+                      <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-64 overflow-y-auto divide-y divide-zinc-50">
+                        {filteredCustomers.length > 0 ? (
+                          <>
+                            {filteredCustomers.map(c => (
+                              <button 
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCustomer(c.id);
+                                  setCustomerSearch('');
+                                }}
+                                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-zinc-50 text-left transition-colors"
+                              >
+                                <div>
+                                  <p className="text-sm font-bold text-zinc-800">{c.nome}</p>
+                                  <p className="text-[10px] text-zinc-400">CPF: {c.cpf || '---'}</p>
+                                </div>
+                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+                                  Selecionar
+                                </span>
+                              </button>
+                            ))}
+                            <div className="p-2 bg-zinc-50/90 sticky bottom-0 border-t border-zinc-100">
+                              <button
+                                type="button"
+                                onClick={() => setShowCustomerModal(true)}
+                                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+                              >
+                                <UserPlus className="w-3.5 h-3.5" />
+                                <span>Cadastrar "{customerSearch}" como Nova Cliente</span>
+                              </button>
                             </div>
-                          </button>
-                        ))}
+                          </>
+                        ) : (
+                          <div className="p-4 text-center space-y-2.5">
+                            <p className="text-xs text-zinc-500 font-medium">
+                              Nenhuma cliente encontrada com "{customerSearch}"
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setShowCustomerModal(true)}
+                              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                            >
+                              <UserPlus className="w-4 h-4" />
+                              <span>Cadastrar "{customerSearch}" Agora</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -725,6 +835,24 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                       className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-800 focus:border-emerald-500 outline-none transition-all font-medium"
                     />
                     <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />
+                  </div>
+
+                  {/* Atalho abaixo de produto para cadastrar novo produto sem sair da sacola */}
+                  <div className="flex items-center justify-between pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenQuickProductModal()}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/90 px-3 py-1.5 rounded-xl transition-all active:scale-95 shadow-2xs group"
+                      title="Atalho: Cadastrar e salvar novo produto no catálogo sem sair da sacola"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                      <span>Cadastrar Novo Produto</span>
+                    </button>
+                    {productSearch.trim() && (
+                      <span className="text-[11px] text-zinc-400">
+                        Código / Termo: <strong className="text-zinc-600 font-mono">{productSearch.trim()}</strong>
+                      </span>
+                    )}
                   </div>
                   
                   {filteredProducts.length > 0 && (
@@ -772,6 +900,32 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
                           </button>
                         );
                       })}
+                      <div className="p-2.5 bg-zinc-50 border-t border-zinc-100 sticky bottom-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuickProductModal(productSearch.trim())}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Cadastrar Novo Produto</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {productSearch.trim() && filteredProducts.length === 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-2 bg-white border border-zinc-200 rounded-xl shadow-xl p-4 text-center space-y-2.5">
+                      <p className="text-xs text-zinc-500 font-medium">
+                        Nenhum produto encontrado com "{productSearch.trim()}"
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenQuickProductModal(productSearch.trim())}
+                        className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Cadastrar "{productSearch.trim()}" Agora</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1050,6 +1204,28 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
         onCancel={() => setItemToDelete(null)}
         variant="danger"
         confirmText="Remover"
+      />
+
+      {/* Modal de Atalho: Cadastrar Nova Cliente */}
+      {showCustomerModal && (
+        <CustomerForm 
+          isModal
+          initialName={customerSearch}
+          onClose={() => setShowCustomerModal(false)}
+          onSave={handleCustomerCreated}
+        />
+      )}
+
+      {/* Modal de Atalho: Cadastrar e Salvar Novo Produto */}
+      <QuickProductModal
+        isOpen={showNewProductModal}
+        onClose={() => {
+          setShowNewProductModal(false);
+          focusProductInput();
+        }}
+        onSave={handleProductCreated}
+        initialQuery={quickProductQuery}
+        existingProducts={products}
       />
 
       {/* Feedback Overlay */}

@@ -12,7 +12,8 @@ import {
   History,
   ShoppingBag,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  UserPlus
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Customer, Bag, BagItem } from '../types';
@@ -23,10 +24,18 @@ import { sanitizeString, isValidCPF, isValidPhone } from '../lib/sanitizer';
 interface CustomerFormProps {
   customer?: Customer;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (savedCustomer?: Customer) => void;
+  isModal?: boolean;
+  initialName?: string;
 }
 
-export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
+export function CustomerForm({ 
+  customer, 
+  onClose, 
+  onSave,
+  isModal = false,
+  initialName = ''
+}: CustomerFormProps) {
   const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -67,7 +76,7 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
 
   const [creditLimitInput, setCreditLimitInput] = useState(customer?.credit_limit?.toString() || '0');
   const [formData, setFormData] = useState<Partial<Customer>>(customer || {
-    nome: '',
+    nome: initialName || '',
     cpf: '',
     birth_date: '',
     gender: '',
@@ -200,27 +209,35 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
         }
       });
 
+      let savedCustomer: Customer | undefined = undefined;
+
       if (customer?.id) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('customers')
           .update({
             ...saveData,
             user_id: user.id
           })
-          .eq('id', customer.id);
+          .eq('id', customer.id)
+          .select()
+          .single();
         if (error) throw error;
+        savedCustomer = data;
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('customers')
           .insert([{
             ...saveData,
             user_id: user.id,
             status: formData.status || 'active'
-          }]);
+          }])
+          .select()
+          .single();
         if (error) throw error;
+        savedCustomer = data;
       }
 
-      onSave();
+      onSave(savedCustomer);
     } catch (err: any) {
       console.error('Error saving customer:', err);
       addNotification({ type: 'error', title: 'Erro ao salvar', message: 'Erro ao salvar cliente: ' + (err.message || 'Verifique os dados e tente novamente.') });
@@ -256,31 +273,31 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
     addNotification({ type: 'info', title: 'GPS', message: 'Localização GPS removida.' });
   };
 
-  return (
-    <div className="bg-zinc-50/50 min-h-screen p-4 sm:p-8 animate-in fade-in duration-300">
-      <div className="max-w-6xl mx-auto">
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-            <h2 className="text-xl font-bold text-zinc-800 text-center sm:text-left">Gestão de Clientes</h2>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-              <button 
-                type="button"
-                onClick={onClose}
-                className="text-zinc-500 hover:text-zinc-800 font-medium transition-colors bg-zinc-100 sm:bg-transparent py-3 sm:py-0 rounded-xl sm:rounded-none w-full sm:w-auto text-center"
-              >
-                Cancelar
-              </button>
-              <button 
-                type="submit"
-                disabled={loading || uploadingDoc || uploadingProof}
-                className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                Salvar
-              </button>
-            </div>
+  const formBody = (
+    <form onSubmit={handleSubmit} className="space-y-8">
+      {/* Header */}
+      {!isModal && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <h2 className="text-xl font-bold text-zinc-800 text-center sm:text-left">Gestão de Clientes</h2>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            <button 
+              type="button"
+              onClick={onClose}
+              className="text-zinc-500 hover:text-zinc-800 font-medium transition-colors bg-zinc-100 sm:bg-transparent py-3 sm:py-0 rounded-xl sm:rounded-none w-full sm:w-auto text-center"
+            >
+              Cancelar
+            </button>
+            <button 
+              type="submit"
+              disabled={loading || uploadingDoc || uploadingProof}
+              className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-3 sm:py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 w-full sm:w-auto"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              Salvar
+            </button>
           </div>
+        </div>
+      )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
             {/* Dados Pessoais */}
@@ -734,7 +751,62 @@ export function CustomerForm({ customer, onClose, onSave }: CustomerFormProps) {
               )}
             </div>
           )}
+          {isModal && (
+            <div className="sticky bottom-0 bg-white/95 backdrop-blur-md pt-4 pb-2 border-t border-zinc-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 z-10">
+              <button 
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-sm text-zinc-600 hover:text-zinc-800 font-bold transition-colors bg-zinc-100 hover:bg-zinc-200 rounded-xl text-center"
+              >
+                Cancelar
+              </button>
+              <button 
+                type="submit"
+                disabled={loading || uploadingDoc || uploadingProof}
+                className="flex items-center justify-center gap-2 bg-[#00a86b] hover:bg-[#008f5b] text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                Salvar e Vincular à Sacola
+              </button>
+            </div>
+          )}
         </form>
+  );
+
+  if (isModal) {
+    return (
+      <div className="fixed inset-0 z-[200] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 my-auto">
+          <div className="p-5 sm:p-6 border-b border-zinc-100 flex items-center justify-between gap-4 bg-zinc-50/70 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-zinc-800 text-lg">Cadastrar Nova Cliente</h3>
+                <p className="text-xs text-zinc-400">Preencha os dados e ela será vinculada automaticamente a esta sacola</p>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="p-2 hover:bg-zinc-200/60 rounded-xl text-zinc-400 hover:text-zinc-600 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 sm:p-8">
+            {formBody}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-zinc-50/50 min-h-screen p-4 sm:p-8 animate-in fade-in duration-300">
+      <div className="max-w-6xl mx-auto">
+        {formBody}
       </div>
     </div>
   );
