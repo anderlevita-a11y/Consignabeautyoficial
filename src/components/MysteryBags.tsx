@@ -22,6 +22,7 @@ import { cn, formatError } from '../lib/utils';
 import { format } from 'date-fns';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
+import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
 
 export function MysteryBagsManager() {
   const { addNotification } = useNotifications();
@@ -490,25 +491,20 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
       const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await prepareImageForUpload(file, 'receipt');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `${user.id}/mystery_bag_${bagId}_${Date.now()}.${fileExt}`;
       const bucket = 'payment_proofs';
 
       const { error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
       if (uploadError) {
         // Fallback to 'products' bucket
         const { error: fallbackError } = await supabase.storage
           .from('products')
-          .upload(`receipts/${fileName}`, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
+          .upload(`receipts/${fileName}`, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
         
         if (fallbackError) throw uploadError;
 

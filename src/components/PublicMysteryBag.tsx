@@ -4,6 +4,7 @@ import { MysteryBagCampaign, MysteryBag, StoreSettings } from '../types';
 import { Loader2, ShoppingBag, Trophy, Info, Upload, CheckCircle2, Gift, ChevronLeft } from 'lucide-react';
 import { cn, validateCPF, validatePhone, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
+import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
 
 export function PublicMysteryBag() {
   const { addNotification } = useNotifications();
@@ -128,26 +129,21 @@ export function PublicMysteryBag() {
 
     setUploading(true);
     try {
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await prepareImageForUpload(file, 'receipt');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${id}/${fileName}`;
       const bucket = 'payment_proofs';
 
       const { error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(filePath, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
       if (uploadError) {
         // Fallback to 'products' bucket
         const { error: fallbackError } = await supabase.storage
           .from('products')
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
+          .upload(filePath, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
         
         if (fallbackError) throw uploadError;
 
@@ -235,7 +231,7 @@ export function PublicMysteryBag() {
         <header className="bg-white border-b border-zinc-100 px-6 py-4 sticky top-0 z-30 flex items-center justify-between">
           <div className="flex items-center gap-4">
             {storeSettings.logo_url ? (
-              <img src={storeSettings.logo_url} alt="Logo" className="h-8 w-auto object-contain" referrerPolicy="no-referrer" />
+              <img loading="lazy" decoding="async" src={storeSettings.logo_url} alt="Logo" className="h-8 w-auto object-contain" referrerPolicy="no-referrer" />
             ) : (
               <span className="font-serif italic font-bold text-zinc-900">{storeSettings.store_name}</span>
             )}

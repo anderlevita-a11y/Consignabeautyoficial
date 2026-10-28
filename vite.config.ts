@@ -135,6 +135,25 @@ export default defineConfig(({mode}) => {
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           skipWaiting: true,
           clientsClaim: true,
+          runtimeCaching: [
+            {
+              // Imagens/arquivos públicos do Supabase Storage: baixa uma vez e
+              // reaproveita do aparelho (reduz o egress do Supabase).
+              // Os nomes dos arquivos são únicos por upload, então não há risco
+              // de exibir uma versão desatualizada.
+              urlPattern: ({ url }) => url.pathname.startsWith('/storage/v1/object/public/'),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'supabase-storage-images',
+                expiration: {
+                  maxEntries: 300,
+                  maxAgeSeconds: 60 * 60 * 24 * 60, // 60 dias
+                  purgeOnQuotaError: true,
+                },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+          ],
         },
         devOptions: {
           enabled: true

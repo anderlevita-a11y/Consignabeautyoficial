@@ -69,7 +69,7 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onV
         <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-sm border border-zinc-100 dark:border-zinc-800">
-              <img src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
+              <img loading="lazy" decoding="async" src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <h3 className={cn("text-xl font-bold tracking-tight", theme === 'dark' ? "text-zinc-100" : "text-zinc-800")}>
@@ -134,7 +134,7 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onV
             theme === 'dark' ? "bg-zinc-900" : "bg-white"
           )}>
             <div className="mx-auto w-20 h-20 rounded-[28%] overflow-hidden shadow-xl border-4 border-white dark:border-zinc-800 mb-4 animate-bounce">
-              <img src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
+              <img loading="lazy" decoding="async" src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
             </div>
             <h3 className={cn("text-xl font-bold", theme === 'dark' ? "text-zinc-100" : "text-zinc-800")}>
               Instalar no iOS
@@ -161,7 +161,7 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onClose, onV
             theme === 'dark' ? "bg-zinc-900" : "bg-white"
           )}>
             <div className="mx-auto w-20 h-20 rounded-[28%] overflow-hidden shadow-xl border-4 border-white dark:border-zinc-800 mb-4 animate-bounce">
-              <img src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
+              <img loading="lazy" decoding="async" src="/pwa-192x192.png" alt="Logo" className="w-full h-full object-cover" />
             </div>
             <h3 className={cn("text-xl font-bold", theme === 'dark' ? "text-zinc-100" : "text-zinc-800")}>
               Instalar no Android

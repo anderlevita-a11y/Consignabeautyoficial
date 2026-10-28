@@ -119,7 +119,7 @@ export function PublicSweepstakes() {
             </div>
           </div>
           {storeSettings?.logo_url && (
-            <img 
+            <img loading="lazy" decoding="async" 
               src={storeSettings.logo_url} 
               alt={storeSettings.store_name} 
               className="h-10 w-auto object-contain"

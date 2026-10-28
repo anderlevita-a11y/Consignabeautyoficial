@@ -33,6 +33,7 @@ import { RafflesManager } from './Raffles';
 import { MysteryBagsManager } from './MysteryBags';
 import { GoalsManager } from './Goals';
 import { useNotifications } from './NotificationCenter';
+import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
 
 export function SweepstakesManager() {
   const { addNotification } = useNotifications();
@@ -767,25 +768,20 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
       const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await prepareImageForUpload(file, 'receipt');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       const bucket = 'payment_proofs';
 
       const { error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
       if (uploadError) {
         // Fallback to 'products' bucket if 'payment_proofs' doesn't exist or fails
         const { error: fallbackError } = await supabase.storage
           .from('products')
-          .upload(`receipts/${fileName}`, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
+          .upload(`receipts/${fileName}`, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
         
         if (fallbackError) throw uploadError;
 

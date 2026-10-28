@@ -128,7 +128,7 @@ export function CatalogSyncPrompt() {
                     <div key={i} className="flex items-center gap-2 p-2 rounded-xl bg-zinc-50 border border-zinc-100">
                       <div className="w-8 h-8 rounded-lg bg-white border border-zinc-200 flex items-center justify-center overflow-hidden">
                         {p.photo_url ? (
-                          <img src={p.photo_url} alt="" className="w-full h-full object-cover" />
+                          <img loading="lazy" decoding="async" src={p.photo_url} alt="" className="w-full h-full object-cover" />
                         ) : (
                           <Package className="w-4 h-4 text-zinc-400" />
                         )}

@@ -26,7 +26,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
-import { compressImage } from '../lib/image-utils';
+import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
 import { Profile, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
@@ -193,11 +193,12 @@ export function ProfileScreen() {
 
     setUploadingReceipt(true);
     try {
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await prepareImageForUpload(file, 'receipt');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `${profile.id}/${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
         .from('receipts')
-        .upload(fileName, file);
+        .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
       if (uploadError) throw uploadError;
 
@@ -296,14 +297,14 @@ export function ProfileScreen() {
     const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const processedFile = await compressImage(file);
+      const processedFile = await prepareImageForUpload(file, 'document');
       const fileExt = processedFile.name.split('.').pop();
       const fileName = `${user.id}/${Math.random()}.${fileExt}`;
       const filePath = `documents/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('documents')
-        .upload(filePath, processedFile);
+        .upload(filePath, processedFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: processedFile.type || undefined });
 
       if (uploadError) throw uploadError;
 
@@ -1377,7 +1378,7 @@ export function ProfileScreen() {
             >
               <X className="w-6 h-6" />
             </button>
-            <img 
+            <img loading="lazy" decoding="async" 
               src={profile.documento_url} 
               alt="Documento" 
               className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
