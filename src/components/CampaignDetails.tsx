@@ -27,6 +27,7 @@ import { K329PrintModal } from './K329PrintModal';
 import { K329ReceiptData } from '../lib/k329Printer';
 
 import { BagSettlement } from './BagSettlement';
+import { useNavState } from '../hooks/useNavState';
 
 interface CampaignDetailsProps {
   campaign: Campaign;
@@ -39,7 +40,8 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
   const [bags, setBags] = useState<Bag[]>([]);
   const [loading, setLoading] = useState(true);
   const { addNotification } = useNotifications();
-  const [settlingBag, setSettlingBag] = useState<Bag | null>(null);
+  // Persistido: após uma recarga acidental, reabre o acerto que estava em andamento
+  const [settlingBag, setSettlingBag] = useNavState<Bag | null>(`campaign:${campaign.id}:settlingBag`, null);
   const [assigningBag, setAssigningBag] = useState<Bag | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
@@ -242,6 +244,7 @@ export function CampaignDetails({ campaign, onBack, onAddBag, onEditBag }: Campa
     return (
       <BagSettlement 
         bag={settlingBag} 
+        campaignName={campaign.name}
         onClose={() => setSettlingBag(null)} 
         onSave={handleSettlementSave}
       />

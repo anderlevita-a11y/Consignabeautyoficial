@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { DraftControls } from './DraftControls';
 import { 
   X, 
   Save, 
@@ -94,6 +96,29 @@ export function CustomerForm({
     residence_proof_url: '',
     status: 'active'
   });
+
+  // ---- Salvamento automático (rascunho local) ---------------------------
+  const customerDraftValue = React.useMemo(
+    () => ({ formData, creditLimitInput }),
+    [formData, creditLimitInput]
+  );
+  const draft = useFormDraft<{ formData: Partial<Customer>; creditLimitInput: string }>({
+    key: customer?.id
+      ? `customer:edit:${customer.id}`
+      : isModal ? 'customer:quick' : 'customer:new',
+    value: customerDraftValue,
+    meta: {
+      label: customer?.id
+        ? `Edição de cliente — ${customer.nome || 'sem nome'}`
+        : `Nova cliente${formData.nome ? ` — ${formData.nome}` : ''}`,
+      customer: customer
+    },
+    onRestore: (d) => {
+      if (d.formData) setFormData(d.formData);
+      if (typeof d.creditLimitInput === 'string') setCreditLimitInput(d.creditLimitInput);
+    }
+  });
+  const handleClose = () => draft.requestClose(onClose);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -237,6 +262,7 @@ export function CustomerForm({
         savedCustomer = data;
       }
 
+      draft.clear();
       onSave(savedCustomer);
     } catch (err: any) {
       console.error('Error saving customer:', err);
@@ -275,6 +301,7 @@ export function CustomerForm({
 
   const formBody = (
     <form onSubmit={handleSubmit} className="space-y-8">
+      <DraftControls draft={draft} />
       {/* Header */}
       {!isModal && (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
@@ -282,7 +309,7 @@ export function CustomerForm({
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <button 
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="text-zinc-500 hover:text-zinc-800 font-medium transition-colors bg-zinc-100 sm:bg-transparent py-3 sm:py-0 rounded-xl sm:rounded-none w-full sm:w-auto text-center"
             >
               Cancelar
@@ -755,7 +782,7 @@ export function CustomerForm({
             <div className="sticky bottom-0 bg-white/95 backdrop-blur-md pt-4 pb-2 border-t border-zinc-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 z-10">
               <button 
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-5 py-2.5 text-sm text-zinc-600 hover:text-zinc-800 font-bold transition-colors bg-zinc-100 hover:bg-zinc-200 rounded-xl text-center"
               >
                 Cancelar
@@ -789,7 +816,7 @@ export function CustomerForm({
             </div>
             <button 
               type="button" 
-              onClick={onClose} 
+              onClick={handleClose} 
               className="p-2 hover:bg-zinc-200/60 rounded-xl text-zinc-400 hover:text-zinc-600 transition-colors"
             >
               <X className="w-5 h-5" />

@@ -5,6 +5,8 @@ import { Campaign } from '../types';
 import { useNotifications } from './NotificationCenter';
 import { cn, formatError } from '../lib/utils';
 import { sanitizeString } from '../lib/sanitizer';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { DraftControls } from './DraftControls';
 
 interface CampaignFormProps {
   onClose: () => void;
@@ -19,6 +21,26 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
     return_date: initialData?.return_date ? new Date(initialData.return_date).toISOString().split('T')[0] : '2026-04-15',
+  });
+
+  // ---- Salvamento automático (rascunho local) ---------------------------
+  const campaignDraftValue = React.useMemo(
+    () => ({ formData, discountPctInput }),
+    [formData, discountPctInput]
+  );
+  const draft = useFormDraft<{ formData: typeof formData; discountPctInput: string }>({
+    key: `campaign:${initialData?.id || 'new'}`,
+    value: campaignDraftValue,
+    meta: {
+      label: initialData?.id
+        ? `Edição de campanha — ${initialData.name}`
+        : `Nova campanha${formData.name ? ` — ${formData.name}` : ''}`,
+      campaign: initialData
+    },
+    onRestore: (d) => {
+      if (d.formData) setFormData(d.formData);
+      if (typeof d.discountPctInput === 'string') setDiscountPctInput(d.discountPctInput);
+    }
   });
 
   const today = new Date().toISOString().split('T')[0];
@@ -77,6 +99,7 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
         if (error) throw error;
       }
 
+      draft.clear();
       onSave();
     } catch (err) {
       console.error('Error saving campaign:', err);
@@ -96,7 +119,7 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
         <h2 className="text-2xl font-bold text-zinc-800 tracking-tight">Campanhas</h2>
         <div className="flex items-center gap-3">
           <button 
-            onClick={onClose}
+            onClick={() => draft.requestClose(onClose)}
             className="px-4 py-2 text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors"
           >
             Cancelar
@@ -113,6 +136,7 @@ export function CampaignForm({ onClose, onSave, initialData }: CampaignFormProps
       </div>
 
       <div className="max-w-3xl mx-auto">
+        <DraftControls draft={draft} className="mb-4" />
         <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="p-8 border-b border-zinc-100 bg-zinc-50/30">
             <h3 className="font-serif italic text-xl text-zinc-700">

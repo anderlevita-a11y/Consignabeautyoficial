@@ -33,6 +33,33 @@ import { cn, printFallback, formatError, formatMoney, formatMoneyInput, parseMon
 import { useNotifications } from './NotificationCenter';
 import { detectUserDuplicates, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
 import { sanitizeString } from '../lib/sanitizer';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { useNavState } from '../hooks/useNavState';
+import { DraftControls } from './DraftControls';
+import { PendingDraftsBanner } from './PendingDraftsBanner';
+
+/** Converte um produto do banco para o estado do formulário de edição. */
+function productToFormData(product: Product) {
+  return {
+    name: product.name || '',
+    label_name: product.label_name || '',
+    ean: product.ean || '',
+    barcode: product.barcode || '',
+    cost_price: formatMoney(product.cost_price || 0),
+    sale_price: formatMoney(product.sale_price || 0),
+    current_stock: product.current_stock?.toString() || '',
+    photo_url: product.photo_url || '',
+    image_urls: product.image_urls && product.image_urls.length > 0
+      ? [...product.image_urls, '', '', ''].slice(0, 3)
+      : [product.photo_url || '', '', ''],
+    has_grid: product.has_grid || false,
+    category: product.category || '',
+    is_visible_in_store: product.is_visible_in_store !== false,
+    description: product.description || '',
+    ean_variations: product.ean_variations || [],
+    grid_data: product.grid_data || []
+  };
+}
 
 export function Products() {
   const { addNotification } = useNotifications();
@@ -43,8 +70,9 @@ export function Products() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
   const [searchTerm, setSearchTerm] = useState('');
-  const [view, setView] = useState<'list' | 'form' | 'import' | 'labels' | 'quick_entry'>('list');
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  // Persistido: após uma recarga acidental, volta para a mesma tela
+  const [view, setView] = useNavState<'list' | 'form' | 'import' | 'labels' | 'quick_entry'>('products:view', 'list');
+  const [editingProduct, setEditingProduct] = useNavState<Product | null>('products:editingProduct', null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [quickEntryList, setQuickEntryList] = useState<{
@@ -120,7 +148,7 @@ export function Products() {
     description: string;
     ean_variations: string[];
     grid_data: { color: string; size: string; quantity: number }[];
-  }>({
+  }>(() => editingProduct ? productToFormData(editingProduct) : {
     name: '',
     label_name: '',
     ean: '',
@@ -571,25 +599,7 @@ export function Products() {
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
-    setFormData({
-      name: product.name || '',
-      label_name: product.label_name || '',
-      ean: product.ean || '',
-      barcode: product.barcode || '',
-      cost_price: formatMoney(product.cost_price || 0),
-      sale_price: formatMoney(product.sale_price || 0),
-      current_stock: product.current_stock?.toString() || '',
-      photo_url: product.photo_url || '',
-      image_urls: product.image_urls && product.image_urls.length > 0 
-        ? [...product.image_urls, '', '', ''].slice(0, 3) 
-        : [product.photo_url || '', '', ''],
-      has_grid: product.has_grid || false,
-      category: product.category || '',
-      is_visible_in_store: product.is_visible_in_store !== false,
-      description: product.description || '',
-      ean_variations: product.ean_variations || [],
-      grid_data: product.grid_data || []
-    });
+    setFormData(productToFormData(product));
     setView('form');
   };
 
@@ -796,6 +806,8 @@ export function Products() {
         if (error) throw error;
         savedData = data;
       }
+
+      productDraft.clear();
 
       addNotification({
         type: 'success',
@@ -1287,6 +1299,42 @@ export function Products() {
     }
   };
 
+  // ---- Salvamento automático (rascunhos locais) -------------------------
+  // Formulário de produto (novo/edição)
+  const productDraft = useFormDraft<typeof formData>({
+    key: view === 'form' ? `product:${editingProduct ? `edit:${editingProduct.id}` : 'new'}` : null,
+    value: formData,
+    meta: {
+      label: editingProduct
+        ? `Edição de produto — ${editingProduct.name}`
+        : `Novo produto${formData.name ? ` — ${formData.name}` : ''}`,
+      product: editingProduct
+    },
+    onRestore: (d) => setFormData(d)
+  });
+
+  // Lista da Entrada Rápida de estoque
+  const quickEntryDraft = useFormDraft<typeof quickEntryList>({
+    key: 'products:quick-entry',
+    value: quickEntryList,
+    meta: {
+      label: `Entrada rápida de estoque (${quickEntryList.length} ${quickEntryList.length === 1 ? 'produto' : 'produtos'})`
+    },
+    onRestore: (d) => setQuickEntryList(Array.isArray(d) ? d : [])
+  });
+
+  const handleResumeProductDraft = (d: { key: string; meta?: Record<string, unknown> }) => {
+    if (d.key === 'products:quick-entry') {
+      setView('quick_entry');
+      return;
+    }
+    const product = (d.meta?.product as Product | null) || null;
+    setEditingProduct(product);
+    if (product) setFormData(productToFormData(product));
+    else handleNewProduct();
+    setView('form');
+  };
+
   const isAdmin = profile?.role === 'admin' || 
     profile?.email === 'anderlevita@gmail.com';
 
@@ -1316,11 +1364,15 @@ export function Products() {
             </span>
           </div>
           <button 
-            onClick={() => setView('list')}
+            onClick={() => productDraft.requestClose(() => setView('list'))}
             className="text-sm font-bold text-zinc-500 hover:text-zinc-800 transition-colors flex items-center justify-center gap-2 w-full sm:w-auto bg-zinc-100 sm:bg-transparent py-3 sm:py-0 rounded-xl sm:rounded-none"
           >
             Voltar para Lista
           </button>
+        </div>
+
+        <div className="max-w-4xl mx-auto">
+          <DraftControls draft={productDraft} />
         </div>
 
         <div className="max-w-4xl mx-auto bg-white border border-zinc-200 rounded-[32px] shadow-xl overflow-hidden">
@@ -1860,6 +1912,7 @@ export function Products() {
         </div>
 
         <div className="max-w-4xl mx-auto space-y-6">
+          <DraftControls draft={quickEntryDraft} />
           <div className="bg-white border border-zinc-200 rounded-[32px] p-8 shadow-xl relative">
             <form onSubmit={handleQuickEntryAdd} className="space-y-4">
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Bipar EAN ou Digitar Nome</label>
@@ -2701,6 +2754,10 @@ export function Products() {
 
   return (
     <div className="space-y-6">
+      <PendingDraftsBanner
+        prefixes={['product:', 'products:quick-entry']}
+        onResume={handleResumeProductDraft}
+      />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-zinc-800">Catálogo de Produtos</h2>

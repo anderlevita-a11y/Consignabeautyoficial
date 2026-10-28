@@ -24,17 +24,21 @@ import { CampaignForm } from './CampaignForm';
 import { BagForm } from './BagForm';
 import { CampaignDetails } from './CampaignDetails';
 import { PromptModal } from './PromptModal';
+import { PendingDraftsBanner } from './PendingDraftsBanner';
+import { useNavState } from '../hooks/useNavState';
+import { DraftRecord, saveNavState } from '../lib/draftStore';
 
 export function Campaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const { addNotification } = useNotifications();
-  const [view, setView] = useState<'list' | 'campaign-form' | 'bag-form' | 'campaign-details'>('list');
+  // Estado de navegação persistido: após uma recarga acidental, volta para a mesma tela
+  const [view, setView] = useNavState<'list' | 'campaign-form' | 'bag-form' | 'campaign-details'>('campaigns:view', 'list');
   const [showArchived, setShowArchived] = useState(false);
-  const [editingCampaign, setEditingCampaign] = useState<Campaign | undefined>();
-  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | undefined>();
-  const [editingBagId, setEditingBagId] = useState<string | undefined>();
+  const [editingCampaign, setEditingCampaign] = useNavState<Campaign | undefined>('campaigns:editingCampaign', undefined);
+  const [selectedCampaign, setSelectedCampaign] = useNavState<Campaign | undefined>('campaigns:selectedCampaign', undefined);
+  const [editingBagId, setEditingBagId] = useNavState<string | undefined>('campaigns:editingBagId', undefined);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Date Prompt Modal State
@@ -269,6 +273,50 @@ export function Campaigns() {
     }
   };
 
+  /** Reabre a tela de um rascunho pendente (sacola, acerto ou campanha). */
+  const handleResumeDraft = async (draft: DraftRecord) => {
+    const meta = (draft.meta || {}) as {
+      campaignId?: string;
+      bagId?: string;
+      bag?: any;
+      campaign?: Campaign;
+    };
+
+    if (draft.key.startsWith('campaign:')) {
+      setEditingCampaign(meta.campaign);
+      setView('campaign-form');
+      return;
+    }
+
+    let campaign: Campaign | undefined = meta.campaignId
+      ? campaigns.find(c => c.id === meta.campaignId)
+      : undefined;
+    if (!campaign && meta.campaignId) {
+      const { data } = await supabase.from('campaigns').select('*').eq('id', meta.campaignId).maybeSingle();
+      campaign = data || undefined;
+    }
+
+    if (draft.key.startsWith('settlement:') && campaign && meta.bag) {
+      saveNavState(`campaign:${campaign.id}:settlingBag`, meta.bag);
+      setSelectedCampaign(campaign);
+      setView('campaign-details');
+      return;
+    }
+
+    if (draft.key.startsWith('bag:')) {
+      setSelectedCampaign(campaign);
+      setEditingBagId(meta.bagId);
+      setView('bag-form');
+      return;
+    }
+
+    addNotification({
+      type: 'warning',
+      title: 'Não foi possível reabrir',
+      message: 'A campanha deste rascunho não foi encontrada.'
+    });
+  };
+
   const handleAddBagToCampaign = (campaign: Campaign) => {
     setSelectedCampaign(campaign);
     setView('bag-form');
@@ -296,6 +344,7 @@ export function Campaigns() {
           setView(selectedCampaign ? 'campaign-details' : 'list');
         }}
         campaignId={selectedCampaign?.id}
+        campaignName={selectedCampaign?.name}
         bagId={editingBagId}
       />
     );
@@ -356,6 +405,13 @@ export function Campaigns() {
           </button>
         </div>
       </div>
+
+      {!showArchived && (
+        <PendingDraftsBanner
+          prefixes={['bag:', 'settlement:', 'campaign:']}
+          onResume={handleResumeDraft}
+        />
+      )}
 
       {fetchError && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm">

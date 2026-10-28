@@ -37,6 +37,7 @@ import { Profile } from '../types';
 import { syncCatalog, resolveDuplicates, getLinkedProductIds } from '../lib/syncCatalog';
 import { useNotifications } from './NotificationCenter';
 import { useBackButton } from '../hooks/useBackButton';
+import { clearAllDraftsForUser } from '../lib/draftStore';
 
 interface SidebarProps {
   activeTab: string;
@@ -94,6 +95,15 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
   }, !!isOpen);
 
   const handleLogout = async () => {
+    // Logout explícito: apaga rascunhos e estado de navegação deste usuário
+    clearAllDraftsForUser();
+    try {
+      Object.keys(window.sessionStorage)
+        .filter(k => k.startsWith('cb:nav:'))
+        .forEach(k => window.sessionStorage.removeItem(k));
+    } catch {
+      /* ignore */
+    }
     await supabase.auth.signOut();
   };
 
