@@ -22,6 +22,7 @@ import { Customer, Bag, BagItem } from '../types';
 import { cn } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { sanitizeString, isValidCPF, isValidPhone } from '../lib/sanitizer';
+import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
 
 interface CustomerFormProps {
   customer?: Customer;
@@ -138,13 +139,14 @@ export function CustomerForm({
     const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await prepareImageForUpload(file, 'document');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       const bucket = isDoc ? 'documents' : 'residence_proofs';
 
       const { error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(fileName, file);
+        .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
       if (uploadError) throw uploadError;
 

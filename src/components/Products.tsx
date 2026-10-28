@@ -24,7 +24,8 @@ import {
   Save
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { compressImage } from '../lib/image-utils';
+import { uploadImage } from '../lib/storage';
+import { StorageImage } from './StorageImage';
 import { Product, PriceSuggestion } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { PrintPreview } from './PrintPreview';
@@ -464,20 +465,14 @@ export function Products() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      const processedFile = await compressImage(file);
-      const fileExt = processedFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `product-photos/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, processedFile);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      // Comprime, envia com cache longo e gera miniatura para listas/loja
+      const { publicUrl } = await uploadImage(
+        'products',
+        `product-photos/${crypto.randomUUID()}`,
+        file,
+        'product',
+        { withThumbnail: true }
+      );
 
       if (typeof index === 'number') {
         const newUrls = [...formData.image_urls];
@@ -1635,7 +1630,7 @@ export function Products() {
                         <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
                       ) : formData.image_urls[index] ? (
                         <>
-                          <img src={formData.image_urls[index]} alt={`Preview ${index}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <StorageImage thumb src={formData.image_urls[index]} alt={`Preview ${index}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                             <Upload className="w-6 h-6 text-white" />
                           </div>
@@ -1973,7 +1968,7 @@ export function Products() {
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-lg bg-zinc-100 flex items-center justify-center overflow-hidden">
                           {product.photo_url ? (
-                            <img src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            <StorageImage thumb src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           ) : (
                             <PackageIcon className="w-5 h-5 text-zinc-400" />
                           )}
@@ -2940,7 +2935,7 @@ export function Products() {
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-lg bg-zinc-100 border border-zinc-200 flex items-center justify-center overflow-hidden">
                             {product.photo_url ? (
-                              <img src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              <StorageImage thumb src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             ) : (
                               <PackageIcon className="w-6 h-6 text-zinc-400" />
                             )}

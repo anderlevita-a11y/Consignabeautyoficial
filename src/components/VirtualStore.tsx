@@ -26,7 +26,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../lib/supabase';
-import { compressImage } from '../lib/image-utils';
+import { uploadImage } from '../lib/storage';
+import { StorageImage } from './StorageImage';
 import { StoreSettings, ProductReview } from '../types';
 import { useBackButton } from '../hooks/useBackButton';
 import { cn, formatError } from '../lib/utils';
@@ -198,9 +199,11 @@ export function VirtualStore({ slug }: { slug?: string }) {
       let hasMore = true;
 
       while (hasMore) {
+        // Apenas as colunas exibidas na loja: reduz ~3x o tráfego (egress) e
+        // não expõe dados internos (custo, histórico de preços) à vitrine pública.
         const { data: productsData, error: productsError } = await supabase
           .from('products')
-          .select('*')
+          .select('id, name, label_name, ean, sale_price, photo_url, image_urls, category, current_stock, description, has_grid, grid_data')
           .eq('user_id', userId)
           .eq('is_visible_in_store', true)
           .range(from, to);
@@ -297,20 +300,12 @@ export function VirtualStore({ slug }: { slug?: string }) {
     const user = session?.user;
       if (!user) throw new Error('Usuário não autenticado');
 
-      const processedFile = await compressImage(file);
-      const fileExt = processedFile.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      const filePath = `reviews/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, processedFile);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadImage(
+        'products',
+        `reviews/${user.id}/${Date.now()}`,
+        file,
+        'avatar'
+      );
 
       setNewReview(prev => ({ ...prev, customer_photo_url: publicUrl }));
     } catch (err: any) {
@@ -603,7 +598,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {settings?.logo_url ? (
-              <img src={settings.logo_url} alt="Logo" className="h-16 w-auto object-contain" referrerPolicy="no-referrer" />
+              <img loading="lazy" decoding="async" src={settings.logo_url} alt="Logo" className="h-16 w-auto object-contain" referrerPolicy="no-referrer" />
             ) : (
               <h2 className="text-3xl font-serif italic text-zinc-900 tracking-tight">
                 {settings?.store_name?.split(' ')[0] || 'Consigna'} <span className="text-[#FF007F]" style={{ color: settings?.primary_color }}>{settings?.store_name?.split(' ').slice(1).join(' ') || 'Beauty'}</span>
@@ -685,7 +680,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
       {/* Hero Banner Section */}
       <section className="px-6 my-8">
         <div className="relative aspect-[3/1] md:aspect-[4/1] w-full rounded-[32px] overflow-hidden group shadow-lg">
-          <img 
+          <img loading="lazy" decoding="async" 
             src={settings?.banner_url || "https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=1200&auto=format&fit=crop"} 
             alt="Hero"
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
@@ -738,7 +733,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
               className="group cursor-pointer text-center"
             >
               <div className="relative aspect-[3/4] rounded-[32px] overflow-hidden bg-zinc-100 mb-4">
-                <img 
+                <StorageImage 
+                  thumb
                   src={product.image_url} 
                   alt={product.name}
                   className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
@@ -1124,7 +1120,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                           />
                           {newReview.customer_photo_url && (
                             <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm">
-                              <img src={newReview.customer_photo_url} alt="Preview" className="w-full h-full object-cover" />
+                              <img loading="lazy" decoding="async" src={newReview.customer_photo_url} alt="Preview" className="w-full h-full object-cover" />
                               <button 
                                 onClick={() => setNewReview(prev => ({ ...prev, customer_photo_url: '' }))}
                                 className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
@@ -1162,7 +1158,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                           reviews.map((review) => (
                             <div key={review.id} className="space-y-2">
                               <div className="flex items-center gap-3">
-                                <img 
+                                <img loading="lazy" decoding="async" 
                                   src={review.customer_photo_url} 
                                   alt={review.customer_name} 
                                   className="w-8 h-8 rounded-full object-cover border border-zinc-100"
@@ -1211,7 +1207,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
             allStoreReviews.slice(0, 5).map((review) => (
               <div key={review.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-zinc-100">
                 <div className="flex items-center gap-4 mb-4">
-                  <img 
+                  <img loading="lazy" decoding="async" 
                     src={review.customer_photo_url} 
                     alt={review.customer_name} 
                     className="w-12 h-12 rounded-full object-cover border-2 border-zinc-50" 
@@ -1258,7 +1254,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                   className="aspect-square rounded-2xl overflow-hidden bg-zinc-200 cursor-pointer"
                   onClick={() => settings?.instagram_post_url && window.open(settings.instagram_post_url, '_blank')}
                 >
-                  <img 
+                  <img loading="lazy" decoding="async" 
                     src={url} 
                     alt={`Instagram ${i}`} 
                     className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
@@ -1272,7 +1268,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                   className="aspect-square rounded-2xl overflow-hidden bg-zinc-200 cursor-pointer"
                   onClick={() => settings?.instagram_post_url && window.open(settings.instagram_post_url, '_blank')}
                 >
-                  <img 
+                  <img loading="lazy" decoding="async" 
                     src={`https://picsum.photos/seed/beauty${i}/300/300`} 
                     alt="Instagram" 
                     className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
@@ -1439,7 +1435,7 @@ export function VirtualStore({ slug }: { slug?: string }) {
                   />
                   {newReview.customer_photo_url && (
                     <div className="relative w-12 h-12 rounded-2xl overflow-hidden border-2 border-white shadow-md">
-                      <img src={newReview.customer_photo_url} alt="Preview" className="w-full h-full object-cover" />
+                      <img loading="lazy" decoding="async" src={newReview.customer_photo_url} alt="Preview" className="w-full h-full object-cover" />
                       <button 
                         onClick={() => setNewReview(prev => ({ ...prev, customer_photo_url: '' }))}
                         className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
@@ -1536,7 +1532,8 @@ export function VirtualStore({ slug }: { slug?: string }) {
                     return (
                       <div key={item.product.id} className="flex gap-4 bg-white border border-zinc-100 p-4 rounded-2xl">
                         <div className="w-20 h-24 rounded-xl overflow-hidden bg-zinc-50 flex-shrink-0">
-                          <img 
+                          <StorageImage 
+                            thumb
                             src={item.product.image_url} 
                             alt={item.product.name}
                             className="w-full h-full object-cover"

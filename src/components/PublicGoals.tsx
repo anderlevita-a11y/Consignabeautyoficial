@@ -294,7 +294,7 @@ export function PublicGoals() {
         <header className="bg-white border-b border-zinc-100 px-6 py-4 sticky top-0 z-30 flex items-center justify-between">
           <div className="flex items-center gap-4">
             {storeSettings.logo_url ? (
-              <img src={storeSettings.logo_url} alt="Logo" className="h-8 w-auto object-contain" referrerPolicy="no-referrer" />
+              <img loading="lazy" decoding="async" src={storeSettings.logo_url} alt="Logo" className="h-8 w-auto object-contain" referrerPolicy="no-referrer" />
             ) : (
               <span className="font-serif italic font-bold text-zinc-900">{storeSettings.store_name}</span>
             )}

@@ -27,6 +27,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { Star, Check, X as CloseIcon, Trash2 as TrashIcon } from 'lucide-react';
 import { useNotifications } from './NotificationCenter';
 import { sanitizeString } from '../lib/sanitizer';
+import { uploadImage } from '../lib/storage';
+import { StorageImage } from './StorageImage';
 
 interface StoreSettings {
   store_name: string;
@@ -257,19 +259,14 @@ export function StoreSettings() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `product-photos/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      // Comprime, envia com cache longo e gera miniatura para listas/loja
+      const { publicUrl } = await uploadImage(
+        'products',
+        `product-photos/${crypto.randomUUID()}`,
+        file,
+        'product',
+        { withThumbnail: true }
+      );
 
       const { error: updateError } = await supabase
         .from('products')
@@ -297,8 +294,8 @@ export function StoreSettings() {
     if (!file) return;
 
     // Check file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'O arquivo é muito grande. O tamanho máximo permitido é 2MB.' });
+    if (file.size > 20 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'O arquivo é muito grande. O tamanho máximo permitido é 20MB.' });
       return;
     }
 
@@ -309,19 +306,12 @@ export function StoreSettings() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${type}-${Math.random()}.${fileExt}`;
-      const filePath = `store-settings/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products') // Using existing bucket
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadImage(
+        'products', // Using existing bucket
+        `store-settings/${type}-${crypto.randomUUID()}`,
+        file,
+        type === 'logo' ? 'logo' : 'banner'
+      );
 
       setSettings(prev => ({
         ...prev,
@@ -485,19 +475,12 @@ export function StoreSettings() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada.');
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `insta-${index}-${Math.random()}.${fileExt}`;
-      const filePath = `store-settings/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath);
+      const { publicUrl } = await uploadImage(
+        'products',
+        `store-settings/insta-${index}-${crypto.randomUUID()}`,
+        file,
+        'social'
+      );
 
       const newFeed = [...(settings.instagram_feed || [])];
       newFeed[index] = publicUrl;
@@ -671,7 +654,7 @@ export function StoreSettings() {
                 <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                   {settings.logo_url ? (
                     <>
-                      <img src={settings.logo_url} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      <img loading="lazy" decoding="async" src={settings.logo_url} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                       <button 
                         onClick={() => removeStoreAsset('logo')}
                         className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -717,7 +700,7 @@ export function StoreSettings() {
                 <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                   {settings.banner_url ? (
                     <>
-                      <img src={settings.banner_url} alt="Banner" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <img loading="lazy" decoding="async" src={settings.banner_url} alt="Banner" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       <button 
                         onClick={() => removeStoreAsset('banner')}
                         className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -896,7 +879,7 @@ export function StoreSettings() {
               <div key={index} className="relative aspect-square bg-zinc-50 rounded-2xl border border-dashed border-zinc-200 overflow-hidden group">
                 {settings.instagram_feed?.[index] ? (
                   <>
-                    <img src={settings.instagram_feed[index]} alt={`Insta ${index}`} className="w-full h-full object-cover" />
+                    <img loading="lazy" decoding="async" src={settings.instagram_feed[index]} alt={`Insta ${index}`} className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <button 
                         onClick={() => removeInstagramPhoto(index)}
@@ -1125,7 +1108,7 @@ export function StoreSettings() {
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className="w-10 h-10 rounded-lg bg-white border border-zinc-100 flex-shrink-0 overflow-hidden relative group/photo">
                       {product.photo_url ? (
-                        <img src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <StorageImage thumb src={product.photo_url} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-zinc-300">
                           <ShoppingBag className="w-5 h-5" />
@@ -1243,7 +1226,7 @@ export function StoreSettings() {
                   >
                     <div className="flex flex-col sm:flex-row gap-6">
                       <div className="flex items-center gap-4 flex-shrink-0">
-                        <img 
+                        <img loading="lazy" decoding="async" 
                           src={review.customer_photo_url} 
                           alt={review.customer_name} 
                           className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm"

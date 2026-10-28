@@ -7,6 +7,7 @@ import { useNotifications } from './NotificationCenter';
 import { GoogleGenAI, Type } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import { cn } from '../lib/utils';
+import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
 
 interface BillingManagementProps {
   profile: Profile | null;
@@ -183,13 +184,14 @@ export function BillingManagement({ profile }: BillingManagementProps) {
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const fileExt = file.name.split('.').pop();
+        const uploadFile = await prepareImageForUpload(file, 'document');
+      const fileExt = uploadFile.name.split('.').pop();
         const fileName = `${Math.random()}.${fileExt}`;
         const filePath = `${session.user.id}/legal_docs/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('receipts')
-          .upload(filePath, file);
+          .upload(filePath, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
         if (uploadError) throw uploadError;
 
