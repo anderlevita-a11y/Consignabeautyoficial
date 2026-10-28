@@ -32,6 +32,7 @@ import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useBackButton } from '../hooks/useBackButton';
+import { clearAllDraftsForUser } from '../lib/draftStore';
 import { BackHandler } from '../lib/backHandler';
 
 export function ProfileScreen() {
@@ -420,7 +421,8 @@ export function ProfileScreen() {
 
           if (profileError) throw profileError;
 
-          // 4. Sign Out
+          // 4. Sign Out (e remove rascunhos locais deste usuário)
+          clearAllDraftsForUser();
           await supabase.auth.signOut();
           
           addNotification({

@@ -10,6 +10,24 @@ body {
   @apply bg-[#f8f9fa] text-zinc-800 antialiased transition-colors duration-300;
 }
 
+/*
+ * Bloqueia o "puxar para atualizar" (pull-to-refresh) do navegador/PWA.
+ * Era o que recarregava a aplicação quando o usuário rolava para cima no
+ * topo da tela e fazia perder os dados digitados.
+ * - html/body: desativa o gesto e o efeito "elástico" da página.
+ * - .app-scroll: contém o overscroll dentro da área de rolagem principal,
+ *   para que o gesto não "vaze" para a página.
+ * Suportado no Chrome/Edge/Samsung Internet (Android) e Safari 16+ (iOS).
+ */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
+.app-scroll {
+  overscroll-behavior-y: contain;
+}
+
 .dark body {
   @apply bg-zinc-950 text-zinc-100;
 }

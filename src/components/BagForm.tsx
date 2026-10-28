@@ -8,12 +8,25 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { CustomerForm } from './CustomerForm';
 import { QuickProductModal } from './QuickProductModal';
 import { sanitizeString } from '../lib/sanitizer';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { DraftControls } from './DraftControls';
 
 interface BagFormProps {
   onClose: () => void;
   onSave: () => void;
   campaignId?: string;
+  /** Usado só para identificar o rascunho no aviso de "cadastro não finalizado". */
+  campaignName?: string;
   bagId?: string;
+}
+
+interface BagDraft {
+  selectedCustomer: string;
+  notes: string;
+  noStock: boolean;
+  isInstallmentPlan: boolean;
+  installmentsCount: number;
+  items: BagItem[];
 }
 
 interface BagItem {
@@ -23,7 +36,7 @@ interface BagItem {
   size?: string;
 }
 
-export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
+export function BagForm({ onClose, onSave, campaignId, campaignName, bagId }: BagFormProps) {
   const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!!bagId);
@@ -308,6 +321,40 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
   const totalValue = items.reduce((sum, i) => sum + (i.product.sale_price * i.quantity), 0);
 
+  // ---- Salvamento automático (rascunho local) ---------------------------
+  // Se a página recarregar/fechar no meio da montagem, os itens voltam sozinhos.
+  const bagDraftValue = React.useMemo<BagDraft>(() => ({
+    selectedCustomer,
+    notes,
+    noStock,
+    isInstallmentPlan,
+    installmentsCount,
+    items
+  }), [selectedCustomer, notes, noStock, isInstallmentPlan, installmentsCount, items]);
+
+  const draft = useFormDraft<BagDraft>({
+    key: bagId ? `bag:edit:${bagId}` : `bag:new:${campaignId || 'avulsa'}`,
+    value: bagDraftValue,
+    ready: !initialLoading,
+    meta: {
+      label: `${bagId ? 'Edição de sacola' : 'Nova sacola'}${campaignName ? ` — ${campaignName}` : ''} (${totalItems} ${totalItems === 1 ? 'item' : 'itens'})`,
+      campaignId,
+      bagId
+    },
+    onRestore: (d) => {
+      setSelectedCustomer(d.selectedCustomer || '');
+      setNotes(d.notes || '');
+      setNoStock(!!d.noStock);
+      setIsInstallmentPlan(!!d.isInstallmentPlan);
+      setInstallmentsCount(d.installmentsCount || 1);
+      // Usa os dados atuais do produto (preço/estoque) quando disponíveis
+      setItems((d.items || []).map(item => ({
+        ...item,
+        product: products.find(p => p.id === item.product.id) || item.product
+      })));
+    }
+  });
+
   const handleSubmit = async () => {
     if (loading) return;
 
@@ -480,6 +527,7 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
         }
       }
 
+      draft.clear();
       onSave();
     } catch (err) {
       console.error('Error saving bag:', err);
@@ -697,12 +745,14 @@ export function BagForm({ onClose, onSave, campaignId, bagId }: BagFormProps) {
         </button>
       </div>
 
+      <DraftControls draft={draft} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
+                <button onClick={() => draft.requestClose(onClose)} className="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
                   <X className="w-5 h-5 text-zinc-400" />
                 </button>
                 <div>

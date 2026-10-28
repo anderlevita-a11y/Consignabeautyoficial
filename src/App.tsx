@@ -38,6 +38,7 @@ import { loadConditionalScript } from './lib/cookieConsent';
 import { AndroidExitToast } from './components/AndroidExitToast';
 import { useBackButton } from './hooks/useBackButton';
 import { BackHandler } from './lib/backHandler';
+import { setDraftUser, purgeExpiredDrafts } from './lib/draftStore';
 
 import { NotificationProvider, NotificationCenter, SystemAlert, useNotifications } from './components/NotificationCenter';
 
@@ -183,13 +184,35 @@ function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('profile');
+  // Mantém a aba atual após uma recarga acidental da página (sessionStorage)
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      return window.sessionStorage.getItem('cb:nav:activeTab') || 'profile';
+    } catch {
+      return 'profile';
+    }
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showPWAInstall, setShowPWAInstall] = useState(false);
   const [legalSettings, setLegalSettings] = useState<AppLegalSettings | null>(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [rejectedReceipt, setRejectedReceipt] = useState<any>(null);
+
+  // Rascunhos (salvamento automático) ficam separados por usuário logado
+  setDraftUser(session?.user?.id);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem('cb:nav:activeTab', activeTab);
+    } catch {
+      /* ignore */
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    purgeExpiredDrafts();
+  }, []);
 
   const tabHistoryRef = React.useRef<string[]>([]);
   const isNavigatingBackRef = React.useRef(false);
@@ -861,7 +884,7 @@ function AppContent() {
       
       {!showPWAInstall && <CatalogSyncPrompt />}
       
-      <main className="flex-1 overflow-y-auto h-screen">
+      <main className="app-scroll flex-1 overflow-y-auto h-screen">
         <header className={cn(
           "h-16 border-b flex items-center justify-between px-4 sm:px-8 backdrop-blur-sm sticky top-0 z-10 no-print transition-colors",
           theme === 'dark' ? "bg-zinc-900/80 border-zinc-800" : "bg-white/80 border-zinc-100"

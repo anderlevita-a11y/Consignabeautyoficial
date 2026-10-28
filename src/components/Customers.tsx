@@ -18,6 +18,8 @@ import { CustomerForm } from './CustomerForm';
 import { cn } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
+import { PendingDraftsBanner } from './PendingDraftsBanner';
+import { useNavState } from '../hooks/useNavState';
 
 export function Customers() {
   const { addNotification } = useNotifications();
@@ -28,8 +30,9 @@ export function Customers() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
   const [searchTerm, setSearchTerm] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<Customer | undefined>();
+  // Persistido: após uma recarga acidental, reabre o formulário que estava aberto
+  const [isAdding, setIsAdding] = useNavState<boolean>('customers:isAdding', false);
+  const [editingCustomer, setEditingCustomer] = useNavState<Customer | undefined>('customers:editingCustomer', undefined);
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
@@ -223,6 +226,14 @@ export function Customers() {
           </button>
         </div>
       </div>
+
+      <PendingDraftsBanner
+        prefixes={['customer:new', 'customer:edit:']}
+        onResume={(d) => {
+          setEditingCustomer(d.key.startsWith('customer:edit:') ? (d.meta?.customer as Customer | undefined) : undefined);
+          setIsAdding(true);
+        }}
+      />
 
       {/* Legenda de Ações */}
       <div className="bg-white border border-zinc-100 rounded-2xl p-4 flex flex-wrap gap-6 items-center shadow-sm">

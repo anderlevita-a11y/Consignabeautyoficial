@@ -32,11 +32,22 @@ import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 import { K329PrintModal } from './K329PrintModal';
 import { K329ReceiptData } from '../lib/k329Printer';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { DraftControls } from './DraftControls';
 
 interface BagSettlementProps {
   bag: Bag;
+  /** Usado só para identificar o rascunho no aviso de "cadastro não finalizado". */
+  campaignName?: string;
   onClose: () => void;
   onSave: () => void;
+}
+
+interface SettlementDraft {
+  /** id do bag_item -> quantidade devolvida */
+  returned: Record<string, number>;
+  paymentMethod: 'dinheiro' | 'pix' | 'cartao';
+  receivedAmount: string;
 }
 
 interface SettlementItem extends BagItem {
@@ -44,7 +55,7 @@ interface SettlementItem extends BagItem {
   product: Product;
 }
 
-export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
+export function BagSettlement({ bag, campaignName, onClose, onSave }: BagSettlementProps) {
   const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -227,6 +238,35 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
     return acc + (sold * item.unit_price);
   }, 0);
   
+  // ---- Salvamento automático (rascunho local) do acerto ------------------
+  const settlementDraftValue = React.useMemo<SettlementDraft>(() => ({
+    returned: Object.fromEntries(items.map(i => [i.id, i.returned_quantity])),
+    paymentMethod,
+    receivedAmount
+  }), [items, paymentMethod, receivedAmount]);
+
+  const draft = useFormDraft<SettlementDraft>({
+    // Sacolas já acertadas não têm o que salvar
+    key: bag.status !== 'closed' ? `settlement:${bag.id}` : null,
+    value: settlementDraftValue,
+    ready: !loading,
+    meta: {
+      label: `Acerto da sacola #${String(bag.bag_number || '').replace(/\D/g, '')}${bag.customer?.nome ? ` — ${bag.customer.nome}` : ''}${campaignName ? ` (${campaignName})` : ''}`,
+      campaignId: bag.campaign_id,
+      bag
+    },
+    onRestore: (d) => {
+      setItems(prev => prev.map(item => {
+        const qty = d.returned?.[item.id];
+        return typeof qty === 'number'
+          ? { ...item, returned_quantity: Math.min(item.quantity, Math.max(0, qty)) }
+          : item;
+      }));
+      if (d.paymentMethod) setPaymentMethod(d.paymentMethod);
+      if (typeof d.receivedAmount === 'string') setReceivedAmount(d.receivedAmount);
+    }
+  });
+
   const commission = totalSold * (campaignDiscount / 100);
   const amountToPay = totalSold - commission;
   const numericReceivedAmount = parseMoney(receivedAmount);
@@ -406,6 +446,8 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
 
       if (bagError) throw bagError;
       
+      draft.clear();
+
       // Share on WhatsApp before closing
       await handleWhatsAppShare();
       
@@ -851,13 +893,15 @@ export function BagSettlement({ bag, onClose, onSave }: BagSettlementProps) {
             </div>
           </div>
 
+        <DraftControls draft={draft} className="mb-6" />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white border border-zinc-200 rounded-3xl p-4 sm:p-8 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                 <div className="flex items-center gap-4">
-                  <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                  <button onClick={() => draft.requestClose(onClose)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
                     <X className="w-5 h-5 text-zinc-400" />
                   </button>
                   <h3 className="text-lg sm:text-xl font-bold text-zinc-700 italic">Acerto da Sacola #{bag.bag_number.replace(/\D/g, '')}</h3>
