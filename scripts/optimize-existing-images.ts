@@ -6,8 +6,10 @@
  *  2. Regrava NO MESMO CAMINHO (a URL não muda → nada no banco precisa ser alterado)
  *     com cache de 1 ano, para o navegador não baixar de novo a cada hora.
  *  3. Cria a miniatura `_thumb.webp` das fotos de produto (usada em listas/loja).
- *  4. Antes de sobrescrever, guarda o original no bucket privado `backup-originais`
- *     (se ainda não houver cópia lá). Desative com --no-backup.
+ *  4. Antes de sobrescrever, guarda o original NO SEU COMPUTADOR, na pasta
+ *     `backup-originais/<bucket>/<caminho>` (ou a pasta de --backup-dir).
+ *     O backup não vai para o Supabase: lá ele somaria no limite de 1 GB de
+ *     arquivos da organização no plano free. Desative com --no-backup.
  *
  * Uso (precisa da service role key — NUNCA coloque essa chave no frontend):
  *   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_KEY=<service_role> npx tsx scripts/optimize-existing-images.ts           # simulação
@@ -15,12 +17,19 @@
  *
  * Opções:
  *   --apply       grava as alterações (sem ela, apenas mostra o que seria feito)
- *   --no-backup   não copia os originais para `backup-originais`
- *   --bucket=xxx  processa só um bucket
+ *   --no-backup        não guarda cópia dos originais
+ *   --backup-dir=xxx   pasta local do backup (padrão: ./backup-originais)
+ *   --bucket=xxx       processa só um bucket
+ *
+ * Guarde a pasta de backup fora do repositório (ela já está no .gitignore)
+ * até conferir no app que as imagens otimizadas estão boas.
  */
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 dotenv.config();
 
@@ -36,13 +45,13 @@ const args = process.argv.slice(2);
 const APPLY = args.includes('--apply');
 const BACKUP = !args.includes('--no-backup');
 const ONLY_BUCKET = args.find(a => a.startsWith('--bucket='))?.split('=')[1];
+const BACKUP_DIR = path.resolve(args.find(a => a.startsWith('--backup-dir='))?.split('=')[1] || 'backup-originais');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
 const PUBLIC_BUCKETS = ['products', 'documents', 'receipts', 'proofs', 'payment_proofs', 'brand', 'residence_proofs'];
-const BACKUP_BUCKET = 'backup-originais';
 const LONG_CACHE = '31536000';
 
 type Preset = { max: number; quality: number; thumb?: boolean };
@@ -89,11 +98,13 @@ async function listAll(bucket: string, prefix = ''): Promise<{ path: string; siz
   return out;
 }
 
-async function existsIn(bucket: string, path: string) {
-  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  const { data } = await supabase.storage.from(bucket).list(dir, { search: name, limit: 5 });
-  return !!data?.some(f => f.name === name);
+/** Grava o original em disco antes de sobrescrever; não regrava se já houver cópia. */
+async function backupLocal(bucket: string, filePath: string, data: Buffer) {
+  const dest = path.join(BACKUP_DIR, bucket, filePath);
+  if (!dest.startsWith(BACKUP_DIR + path.sep)) throw new Error(`caminho inválido para backup: ${filePath}`);
+  if (existsSync(dest)) return;
+  await mkdir(path.dirname(dest), { recursive: true });
+  await writeFile(dest, data);
 }
 
 const kb = (n: number) => `${(n / 1024).toFixed(0)} KB`;
@@ -101,6 +112,7 @@ const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
 
 async function run() {
   console.log(APPLY ? '>>> MODO EXECUÇÃO (--apply)' : '>>> SIMULAÇÃO (use --apply para gravar)');
+  if (APPLY) console.log(BACKUP ? `Backup dos originais em: ${BACKUP_DIR}` : 'Sem backup (--no-backup)');
   let before = 0;
   let after = 0;
   let thumbs = 0;
@@ -157,12 +169,10 @@ async function run() {
         }
 
         if (BACKUP && useOptimized) {
-          const backupPath = `${bucket}/${f.path}`;
-          if (!(await existsIn(BACKUP_BUCKET, backupPath))) {
-            const { error: bErr } = await supabase.storage
-              .from(BACKUP_BUCKET)
-              .upload(backupPath, original, { contentType: blob.type || undefined, upsert: false });
-            if (bErr) throw new Error(`backup falhou (${bErr.message}) — arquivo não alterado`);
+          try {
+            await backupLocal(bucket, f.path, original);
+          } catch (bErr: any) {
+            throw new Error(`backup falhou (${bErr?.message || bErr}) — arquivo não alterado`);
           }
         }
 
@@ -190,6 +200,7 @@ async function run() {
   console.log(`Tamanho: ${mb(before)} → ${mb(after)} (economia de ${mb(before - after)})`);
   console.log(`Miniaturas ${APPLY ? 'criadas' : 'a criar'}: ${thumbs}`);
   if (!APPLY) console.log('\nNada foi alterado. Rode novamente com --apply para gravar.');
+  else if (BACKUP) console.log(`\nOriginais guardados em ${BACKUP_DIR}. Apague a pasta depois de conferir as imagens no app.`);
 }
 
 run().catch(err => {
