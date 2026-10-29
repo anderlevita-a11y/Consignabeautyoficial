@@ -30,6 +30,7 @@ import { format } from 'date-fns';
 import { ConfirmationModal } from './ConfirmationModal';
 import { useNotifications } from './NotificationCenter';
 import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
+import { getFileUrl, openFile, openInNewTab, SHARE_SECONDS } from '../lib/privateFiles';
 
 export function RafflesManager() {
   const [raffles, setRaffles] = useState<Raffle[]>([]);
@@ -519,36 +520,19 @@ function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () 
         .from(bucket)
         .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
-      if (uploadError) {
-        // Fallback to 'products' bucket
-        const { error: fallbackError } = await supabase.storage
-          .from('products')
-          .upload(`receipts/${fileName}`, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
-        
-        if (fallbackError) throw uploadError;
+      // Comprovantes ficam só no bucket privado (nunca no bucket público "products")
+      if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('products')
-          .getPublicUrl(`receipts/${fileName}`);
-        
-        const { error: updateError } = await supabase
-          .from('raffle_tickets')
-          .update({ receipt_url: publicUrl })
-          .eq('id', ticketId);
-        
-        if (updateError) throw updateError;
-      } else {
-        const { data: { publicUrl } } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(fileName);
-        
-        const { error: updateError } = await supabase
-          .from('raffle_tickets')
-          .update({ receipt_url: publicUrl })
-          .eq('id', ticketId);
-        
-        if (updateError) throw updateError;
-      }
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(fileName);
+      
+      const { error: updateError } = await supabase
+        .from('raffle_tickets')
+        .update({ receipt_url: publicUrl })
+        .eq('id', ticketId);
+      
+      if (updateError) throw updateError;
       
       fetchTickets();
     } catch (err) {
@@ -678,9 +662,9 @@ function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () 
                     <td className="px-8 py-4 text-zinc-500 text-sm">{t.buyer_phone}</td>
                     <td className="px-8 py-4">
                       {t.receipt_url ? (
-                        <a href={t.receipt_url} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
+                        <button type="button" onClick={() => openFile(t.receipt_url)} className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
                           <Eye className="w-4 h-4" /> Ver Comprovante
-                        </a>
+                        </button>
                       ) : (
                         <div className="flex items-center gap-2">
                           <span className="text-zinc-400 text-xs italic">Aguardando envio</span>
@@ -714,10 +698,11 @@ function RaffleDetails({ raffle, onBack, onDraw }: { raffle: Raffle; onBack: () 
                     <td className="px-8 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button 
-                          onClick={() => {
-                            const message = `Olá ${t.buyer_name}! Confirmamos sua reserva do número ${String(t.number).padStart(3, '0')} na rifa "${raffle.title}".\n\nStatus: ${t.status === 'paid' ? 'PAGO' : 'AGUARDANDO PAGAMENTO'}${t.receipt_url ? `\nComprovante: ${t.receipt_url}` : ''}\n\nBoa sorte!`;
-                            window.open(`https://wa.me/55${t.buyer_phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
-                          }}
+                          onClick={() => openInNewTab(async () => {
+                            const receiptLink = t.receipt_url ? await getFileUrl(t.receipt_url, SHARE_SECONDS) : null;
+                            const message = `Olá ${t.buyer_name}! Confirmamos sua reserva do número ${String(t.number).padStart(3, '0')} na rifa "${raffle.title}".\n\nStatus: ${t.status === 'paid' ? 'PAGO' : 'AGUARDANDO PAGAMENTO'}${receiptLink ? `\nComprovante (link válido por 7 dias): ${receiptLink}` : ''}\n\nBoa sorte!`;
+                            return `https://wa.me/55${t.buyer_phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                          })}
                           className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
                           title="Enviar WhatsApp"
                         >

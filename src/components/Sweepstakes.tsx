@@ -34,6 +34,7 @@ import { MysteryBagsManager } from './MysteryBags';
 import { GoalsManager } from './Goals';
 import { useNotifications } from './NotificationCenter';
 import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
+import { getFileUrl, openFile, openInNewTab, SHARE_SECONDS } from '../lib/privateFiles';
 
 export function SweepstakesManager() {
   const { addNotification } = useNotifications();
@@ -696,9 +697,9 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
                     <td className="px-8 py-4 font-bold text-zinc-800 text-sm">R$ {p.paid_amount.toFixed(2)}</td>
                     <td className="px-8 py-4">
                       {p.receipt_url ? (
-                        <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
+                        <button type="button" onClick={() => openFile(p.receipt_url)} className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
                           <Eye className="w-4 h-4" /> Ver
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-zinc-400 text-xs italic">-</span>
                       )}
@@ -714,10 +715,11 @@ function SweepstakesDetails({ sweep, onBack, onDraw }: { sweep: Sweepstakes; onB
                     <td className="px-8 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button 
-                          onClick={() => {
-                            const message = `Olá ${p.name}! Confirmamos sua participação no sorteio "${sweep.name}".\n\nValor Pago: R$ ${p.paid_amount.toFixed(2)}\nCupons Gerados: ${p.coupons_count}${p.receipt_url ? `\nComprovante: ${p.receipt_url}` : ''}\n\nBoa sorte!`;
-                            window.open(`https://wa.me/55${p.contact.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
-                          }}
+                          onClick={() => openInNewTab(async () => {
+                            const receiptLink = p.receipt_url ? await getFileUrl(p.receipt_url, SHARE_SECONDS) : null;
+                            const message = `Olá ${p.name}! Confirmamos sua participação no sorteio "${sweep.name}".\n\nValor Pago: R$ ${p.paid_amount.toFixed(2)}\nCupons Gerados: ${p.coupons_count}${receiptLink ? `\nComprovante (link válido por 7 dias): ${receiptLink}` : ''}\n\nBoa sorte!`;
+                            return `https://wa.me/55${p.contact.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                          })}
                           className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
                           title="Enviar WhatsApp"
                         >
@@ -777,26 +779,14 @@ function ParticipantModal({ sweepstakesId, onClose, onSave }: { sweepstakesId: s
         .from(bucket)
         .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
-      if (uploadError) {
-        // Fallback to 'products' bucket if 'payment_proofs' doesn't exist or fails
-        const { error: fallbackError } = await supabase.storage
-          .from('products')
-          .upload(`receipts/${fileName}`, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
-        
-        if (fallbackError) throw uploadError;
+      // Comprovantes ficam só no bucket privado (nunca no bucket público "products")
+      if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('products')
-          .getPublicUrl(`receipts/${fileName}`);
-        
-        setFormData(prev => ({ ...prev, receipt_url: publicUrl }));
-      } else {
-        const { data: { publicUrl } } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(fileName);
-        
-        setFormData(prev => ({ ...prev, receipt_url: publicUrl }));
-      }
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(fileName);
+      
+      setFormData(prev => ({ ...prev, receipt_url: publicUrl }));
     } catch (err) {
       console.error('Error uploading receipt:', err);
       addNotification({

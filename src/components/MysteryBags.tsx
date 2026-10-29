@@ -23,6 +23,7 @@ import { format } from 'date-fns';
 import { useNotifications } from './NotificationCenter';
 import { ConfirmationModal } from './ConfirmationModal';
 import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
+import { getFileUrl, openFile, openInNewTab, SHARE_SECONDS } from '../lib/privateFiles';
 
 export function MysteryBagsManager() {
   const { addNotification } = useNotifications();
@@ -500,36 +501,19 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
         .from(bucket)
         .upload(fileName, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
-      if (uploadError) {
-        // Fallback to 'products' bucket
-        const { error: fallbackError } = await supabase.storage
-          .from('products')
-          .upload(`receipts/${fileName}`, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
-        
-        if (fallbackError) throw uploadError;
+      // Comprovantes ficam só no bucket privado (nunca no bucket público "products")
+      if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('products')
-          .getPublicUrl(`receipts/${fileName}`);
-        
-        const { error: updateError } = await supabase
-          .from('mystery_bags')
-          .update({ receipt_url: publicUrl })
-          .eq('id', bagId);
-        
-        if (updateError) throw updateError;
-      } else {
-        const { data: { publicUrl } } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(fileName);
-        
-        const { error: updateError } = await supabase
-          .from('mystery_bags')
-          .update({ receipt_url: publicUrl })
-          .eq('id', bagId);
-        
-        if (updateError) throw updateError;
-      }
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(fileName);
+      
+      const { error: updateError } = await supabase
+        .from('mystery_bags')
+        .update({ receipt_url: publicUrl })
+        .eq('id', bagId);
+      
+      if (updateError) throw updateError;
       
       fetchBags();
     } catch (err) {
@@ -705,9 +689,9 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
                     <td className="px-8 py-4 text-zinc-500 text-sm">{bag.buyer_phone || '-'}</td>
                     <td className="px-8 py-4">
                       {bag.receipt_url ? (
-                        <a href={bag.receipt_url} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
+                        <button type="button" onClick={() => openFile(bag.receipt_url)} className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1">
                           <Eye className="w-4 h-4" /> Ver
-                        </a>
+                        </button>
                       ) : (
                         bag.status === 'reserved' && (
                           <div className="flex items-center gap-2">
@@ -746,10 +730,11 @@ function MysteryBagDetails({ campaign, onBack }: { campaign: MysteryBagCampaign;
                       <div className="flex items-center justify-end gap-2">
                         {bag.buyer_phone && (
                           <button 
-                            onClick={() => {
-                              const message = `Olá ${bag.buyer_name}! Confirmamos sua reserva da sacola #${String(bag.display_number).padStart(2, '0')} na campanha "${campaign.title}".\n\nStatus: ${bag.status === 'paid' ? 'PAGO' : 'AGUARDANDO PAGAMENTO'}${bag.receipt_url ? `\nComprovante: ${bag.receipt_url}` : ''}\n\nO conteúdo será revelado em breve!`;
-                              window.open(`https://wa.me/55${bag.buyer_phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
-                            }}
+                            onClick={() => openInNewTab(async () => {
+                              const receiptLink = bag.receipt_url ? await getFileUrl(bag.receipt_url, SHARE_SECONDS) : null;
+                              const message = `Olá ${bag.buyer_name}! Confirmamos sua reserva da sacola #${String(bag.display_number).padStart(2, '0')} na campanha "${campaign.title}".\n\nStatus: ${bag.status === 'paid' ? 'PAGO' : 'AGUARDANDO PAGAMENTO'}${receiptLink ? `\nComprovante (link válido por 7 dias): ${receiptLink}` : ''}\n\nO conteúdo será revelado em breve!`;
+                              return `https://wa.me/55${bag.buyer_phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+                            })}
                             className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors"
                             title="Enviar WhatsApp"
                           >
