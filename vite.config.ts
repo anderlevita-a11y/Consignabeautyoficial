@@ -137,14 +137,35 @@ export default defineConfig(({mode}) => {
           clientsClaim: true,
           runtimeCaching: [
             {
-              // Imagens/arquivos públicos do Supabase Storage: baixa uma vez e
-              // reaproveita do aparelho (reduz o egress do Supabase).
+              // Miniaturas (_thumb.webp) do Supabase Storage. Carregadas com
+              // crossOrigin pelo <StorageImage>, então o status é conhecido e só
+              // respostas 200 entram no cache: uma miniatura que ainda não existe
+              // (404) não fica guardada no aparelho e passa a ser usada assim
+              // que o script de otimização a criar.
+              urlPattern: ({ url }) =>
+                url.pathname.startsWith('/storage/v1/object/public/') && /_thumb\.webp$/i.test(url.pathname),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'supabase-storage-thumbs',
+                expiration: {
+                  maxEntries: 500,
+                  maxAgeSeconds: 60 * 60 * 24 * 60, // 60 dias
+                  purgeOnQuotaError: true,
+                },
+                cacheableResponse: { statuses: [200] },
+              },
+            },
+            {
+              // Demais imagens/arquivos públicos do Supabase Storage: baixa uma vez
+              // e reaproveita do aparelho (reduz o egress do Supabase).
               // Os nomes dos arquivos são únicos por upload, então não há risco
-              // de exibir uma versão desatualizada.
+              // de exibir uma versão desatualizada. Status 0 (resposta opaca) é
+              // aceito porque logos e banners usam <img> sem crossOrigin; esses
+              // arquivos existem no banco, então não guardam erro de "não encontrado".
               urlPattern: ({ url }) => url.pathname.startsWith('/storage/v1/object/public/'),
               handler: 'CacheFirst',
               options: {
-                cacheName: 'supabase-storage-images',
+                cacheName: 'supabase-storage-images-v2',
                 expiration: {
                   maxEntries: 300,
                   maxAgeSeconds: 60 * 60 * 24 * 60, // 60 dias
