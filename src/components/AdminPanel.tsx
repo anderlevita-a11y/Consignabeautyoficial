@@ -24,6 +24,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { openFile } from '../lib/privateFiles';
 import { Profile, AppLegalSettings, DailyInsight, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -1633,15 +1634,14 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
-                            <a 
-                              href={receipt.receipt_url} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
+                            <button 
+                              type="button"
+                              onClick={() => openFile(receipt.receipt_url)}
                               className="p-2 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 rounded-lg transition-all"
                               title="Visualizar Comprovante"
                             >
                               <Eye className="w-4 h-4" />
-                            </a>
+                            </button>
                             {receipt.status === 'pending' && (
                               <>
                                 <button

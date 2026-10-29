@@ -27,6 +27,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { generatePixPayload } from '../lib/pix';
 import { supabase } from '../lib/supabase';
 import { prepareImageForUpload, STORAGE_UPLOAD_OPTIONS } from '../lib/storage';
+import { openFile } from '../lib/privateFiles';
+import { PrivateImage } from './PrivateImage';
 import { Profile, PaymentReceipt } from '../types';
 import { cn, formatError } from '../lib/utils';
 import { useNotifications } from './NotificationCenter';
@@ -1115,14 +1117,13 @@ export function ProfileScreen() {
                           </div>
                         </div>
 
-                        <a 
-                          href={receipt.receipt_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
+                        <button 
+                          type="button"
+                          onClick={() => openFile(receipt.receipt_url)}
                           className="px-3 py-1.5 bg-white border border-zinc-200 hover:bg-zinc-100 rounded-lg text-xs font-bold text-zinc-700 transition-colors flex items-center gap-1 shadow-sm"
                         >
                           <Eye className="w-3.5 h-3.5" /> Ver
-                        </a>
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -1378,11 +1379,10 @@ export function ProfileScreen() {
             >
               <X className="w-6 h-6" />
             </button>
-            <img loading="lazy" decoding="async" 
-              src={profile.documento_url} 
-              alt="Documento" 
+            <PrivateImage
+              url={profile.documento_url}
+              alt="Documento"
               className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
-              referrerPolicy="no-referrer"
             />
             <p className="text-white font-bold text-sm tracking-widest uppercase">Visualização do Documento</p>
           </div>

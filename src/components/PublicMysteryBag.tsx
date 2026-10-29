@@ -139,26 +139,14 @@ export function PublicMysteryBag() {
         .from(bucket)
         .upload(filePath, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
 
-      if (uploadError) {
-        // Fallback to 'products' bucket
-        const { error: fallbackError } = await supabase.storage
-          .from('products')
-          .upload(filePath, uploadFile, { ...STORAGE_UPLOAD_OPTIONS, contentType: uploadFile.type || undefined });
-        
-        if (fallbackError) throw uploadError;
+      // Comprovantes ficam só no bucket privado (nunca no bucket público "products")
+      if (uploadError) throw uploadError;
 
-        const { data } = supabase.storage
-          .from('products')
-          .getPublicUrl(filePath);
+      const { data } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(filePath);
 
-        setReceiptUrl(data.publicUrl);
-      } else {
-        const { data } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(filePath);
-
-        setReceiptUrl(data.publicUrl);
-      }
+      setReceiptUrl(data.publicUrl);
     } catch (err) {
       console.error('Error uploading receipt:', err);
       addNotification({
