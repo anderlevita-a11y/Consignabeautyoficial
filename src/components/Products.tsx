@@ -1333,7 +1333,7 @@ export function Products() {
   const isAdmin = profile?.role === 'admin' || 
     profile?.email === 'anderlevita@gmail.com';
 
-  const isRestrictedPlan = profile?.status_pagamento === 'STARTER' || profile?.status_pagamento === 'TRIAL';
+  const isRestrictedPlan = profile?.status_pagamento === 'TRIAL';
 
   const filteredProducts = products;
 

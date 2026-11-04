@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getAccessState } from '../lib/access';
 import { 
   LayoutDashboard, 
   Package, 
@@ -107,16 +108,8 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
     await supabase.auth.signOut();
   };
 
-  const isAdmin = profile?.role === 'admin' || 
-    profile?.email === 'anderlevita@gmail.com';
-  const isBlocked = !!profile?.is_blocked;
-  
-  const isTrial = profile?.status_pagamento === 'TRIAL';
-  const isStarter = profile?.status_pagamento === 'STARTER';
-  const trialEnd = isTrial && profile?.vencimento ? new Date(profile.vencimento) : null;
-  const isTrialExpired = isTrial && trialEnd && trialEnd.getTime() < new Date().getTime();
-  
-  const hasAccess = isAdmin || ((!!profile?.access_key_code || profile?.plano_tipo === 'pro') && !isBlocked && !isTrialExpired && !!profile?.whatsapp);
+  const { isAdmin, isTrial, isBlocked, hasAccess: planoLiberado } = getAccessState(profile);
+  const hasAccess = isAdmin || (planoLiberado && !!profile?.whatsapp);
 
   const handleTabClick = (id: string, isPublic: boolean) => {
     if (!hasAccess && !isPublic) return;
@@ -247,7 +240,7 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onClose, profile, cla
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const isRestricted = (isStarter || isTrial) && (item as any).restrictedForStarter;
+            const isRestricted = isTrial && (item as any).restrictedForStarter;
             const isLocked = (!hasAccess && !item.public) || isRestricted;
             
             return (

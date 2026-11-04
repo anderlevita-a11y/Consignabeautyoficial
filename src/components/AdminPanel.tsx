@@ -581,7 +581,7 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     });
   };
 
-  const updateUserStatus = (userId: string, status: 'PRO' | 'STARTER' | 'PAGO' | 'PENDENTE' | 'TRIAL') => {
+  const updateUserStatus = (userId: string, status: 'MENSAL' | 'PENDENTE' | 'TRIAL') => {
     const selectedUser = users.find(u => u.id === userId);
     if (!selectedUser) return;
 
@@ -595,31 +595,16 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
         setLoading(true);
         try {
           const updates: any = { status_pagamento: status };
-          
-          const getNext8th = () => {
-            const now = new Date();
-            let next8th = new Date(now.getFullYear(), now.getMonth(), 8, 12, 0, 0);
-            if (now.getDate() >= 8) {
-              next8th.setMonth(next8th.getMonth() + 1);
-            }
-            return next8th.toISOString();
-          };
 
-          if (status === 'PRO') {
-            updates.access_key_code = selectedUser.access_key_code || `PRO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-            updates.plan = 'Pro';
-            updates.plano_tipo = 'pro';
-            updates.vencimento = getNext8th();
-          } else if (status === 'STARTER') {
-            updates.access_key_code = selectedUser.access_key_code || `START-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-            updates.plan = 'Starter';
-            updates.plano_tipo = 'starter';
-            updates.vencimento = getNext8th();
-          } else if (status === 'PAGO') {
-            updates.access_key_code = selectedUser.access_key_code || `KEY-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-            updates.plan = 'Standard';
-            updates.plano_tipo = 'standard';
-            updates.vencimento = null;
+          if (status === 'MENSAL') {
+            // Liberação manual do plano Mensal: 1 mês a partir de hoje
+            const venc = new Date();
+            venc.setMonth(venc.getMonth() + 1);
+            updates.access_key_code = selectedUser.access_key_code || `MENSAL-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            updates.plan = 'Mensal';
+            updates.plano_tipo = 'mensal';
+            updates.plano_status = 'ativo';
+            updates.vencimento = venc.toISOString();
           } else if (status === 'TRIAL') {
             updates.access_key_code = selectedUser.access_key_code || `TRIAL-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             updates.plan = 'Trial';
@@ -667,18 +652,18 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     setLoading(true);
     try {
       const payDate = new Date(expirationModal.paymentDate + 'T12:00:00');
-      let next8th = new Date(payDate.getFullYear(), payDate.getMonth(), 8, 12, 0, 0);
-      
-      if (payDate.getDate() >= 8) {
-        next8th.setMonth(next8th.getMonth() + 1);
-      }
+      // Plano Mensal: vence 1 mês após a data do pagamento
+      const next8th = new Date(payDate.getTime());
+      next8th.setMonth(next8th.getMonth() + 1);
       
       const { error } = await supabase
         .from('profiles')
         .update({ 
           vencimento: next8th.toISOString(),
           data_pagamento: expirationModal.paymentDate,
-          status_pagamento: 'PAGO' // Assume it becomes PAGO when expiration is set
+          status_pagamento: 'MENSAL',
+          plano_tipo: 'mensal',
+          plan: 'Mensal'
         })
         .eq('id', expirationModal.userId);
 
@@ -750,7 +735,7 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
     try {
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ is_blocked: true })
+        .update({ is_blocked: true, blocked_reason: 'inadimplencia' })
         .in('id', expiredUsersModal.selectedIds);
 
       if (updateError) throw updateError;
@@ -933,7 +918,7 @@ Data da última atualização: 09 de marco. Responsável Legal: Anderson Rodrigu
   const toggleBlockUser = async (userId: string, currentStatus: boolean) => {
     const { error } = await supabase
       .from('profiles')
-      .update({ is_blocked: !currentStatus })
+      .update({ is_blocked: !currentStatus, blocked_reason: currentStatus ? null : 'manual' })
       .eq('id', userId);
 
     if (error) {
@@ -1827,18 +1812,25 @@ CREATE POLICY "Permitir tudo para admins" ON daily_insights FOR ALL TO authentic
                           "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase",
                           user.is_blocked 
                             ? "bg-red-100 text-red-700" 
-                            : user.status_pagamento === 'PRO'
-                              ? "bg-amber-100 text-amber-700"
-                              : user.status_pagamento === 'STARTER'
-                                ? "bg-purple-100 text-purple-700"
-                                : user.status_pagamento === 'TRIAL'
-                                ? "bg-blue-100 text-blue-700"
-                                : user.status_pagamento === 'PAGO' 
-                                  ? "bg-emerald-100 text-emerald-700" 
-                                  : "bg-zinc-100 text-zinc-500"
+                            : user.status_pagamento === 'TRIAL'
+                              ? "bg-blue-100 text-blue-700"
+                              : user.status_pagamento === 'MENSAL'
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-zinc-100 text-zinc-500"
                         )}>
                           {user.is_blocked ? 'BLOQUEADO' : (user.status_pagamento || 'PENDENTE')}
                         </span>
+                        {user.abacate_subscription_status === 'ACTIVE' && (
+                          <span className="block mt-1 text-[9px] font-bold text-emerald-600" title="Cobrança recorrente ativa na AbacatePay">
+                            ● RECORRENTE {user.abacate_method === 'PIX' ? 'PIX' : 'CARTÃO'}
+                          </span>
+                        )}
+                        {user.abacate_subscription_status === 'CANCELLED' && (
+                          <span className="block mt-1 text-[9px] font-bold text-zinc-400">ASSINATURA CANCELADA</span>
+                        )}
+                        {user.is_blocked && user.blocked_reason === 'inadimplencia' && (
+                          <span className="block mt-1 text-[9px] font-bold text-red-400">POR VENCIMENTO</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
@@ -1941,38 +1933,17 @@ Qualquer dúvida, estamos à disposição!`;
                                 TRIAL
                               </button>
                               <button 
-                                onClick={() => updateUserStatus(user.id, 'STARTER')}
+                                onClick={() => updateUserStatus(user.id, 'MENSAL')}
                                 className={cn(
                                   "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
-                                  user.status_pagamento === 'STARTER' 
-                                    ? "bg-purple-500 text-white" 
-                                    : "bg-purple-50 text-purple-600 hover:bg-purple-100"
-                                )}
-                              >
-                                STARTER
-                              </button>
-                              <button 
-                                onClick={() => updateUserStatus(user.id, 'PAGO')}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
-                                  user.status_pagamento === 'PAGO' 
+                                  user.status_pagamento === 'MENSAL'
                                     ? "bg-emerald-500 text-white" 
                                     : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                                 )}
-                              >
-                                PAGO
-                              </button>
-                              <button 
-                                onClick={() => updateUserStatus(user.id, 'PRO')}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
-                                  user.status_pagamento === 'PRO'
-                                    ? "bg-orange-500 text-white" 
-                                    : "bg-orange-50 text-orange-600 hover:bg-orange-100"
-                                )}
+                                title="Liberar plano Mensal manualmente (1 mês)"
                               >
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                PRO
+                                MENSAL
                               </button>
                             </>
                           )}
@@ -2115,20 +2086,13 @@ Qualquer dúvida, estamos à disposição!`;
                 />
               </div>
 
-              <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-100 space-y-4">
-                <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cálculo Proporcional (Vencimento dia 08)</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white p-3 rounded-xl border border-zinc-100">
-                    <p className="text-[10px] text-zinc-400 font-bold uppercase">Plano Starter</p>
-                    <p className="text-lg font-black text-purple-600">R$ {calculateProRated(39.99, expirationModal.paymentDate)}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-zinc-100">
-                    <p className="text-[10px] text-zinc-400 font-bold uppercase">Plano Pro</p>
-                    <p className="text-lg font-black text-orange-600">R$ {calculateProRated(79.99, expirationModal.paymentDate)}</p>
-                  </div>
-                </div>
+              <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-100 space-y-2">
+                <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Plano Mensal — R$ 39,99</h4>
+                <p className="text-sm text-zinc-600">
+                  Novo vencimento: <strong>{(() => { const d = new Date(expirationModal.paymentDate + 'T12:00:00'); d.setMonth(d.getMonth() + 1); return d.toLocaleDateString('pt-BR'); })()}</strong>
+                </p>
                 <p className="text-[10px] text-zinc-400 italic">
-                  * O vencimento será definido automaticamente para o próximo dia 08.
+                  * Use para pagamentos manuais (PIX com comprovante). Assinaturas da AbacatePay renovam o vencimento sozinhas.
                 </p>
               </div>
             </div>
