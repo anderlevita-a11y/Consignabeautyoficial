@@ -12,6 +12,14 @@ export interface Profile {
   status_pagamento?: string;
   is_blocked?: boolean;
   is_archived?: boolean;
+  blocked_reason?: 'manual' | 'inadimplencia' | null;
+  abacate_customer_id?: string | null;
+  abacate_checkout_id?: string | null;
+  abacate_checkout_url?: string | null;
+  abacate_subscription_id?: string | null;
+  abacate_subscription_status?: 'PENDING' | 'ACTIVE' | 'CANCELLED' | null;
+  abacate_method?: 'CARD' | 'PIX' | null;
+  assinatura_atualizada_em?: string | null;
   data_pagamento?: string;
   pix_key?: string;
   pix_beneficiary?: string;

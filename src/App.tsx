@@ -30,6 +30,7 @@ import { PublicGoals } from './components/PublicGoals';
 import { PublicSweepstakes } from './components/PublicSweepstakes';
 import { Settings, Loader2, Megaphone, BarChart3, Ticket, Calculator, ShieldAlert, Menu, StickyNote, DollarSign } from 'lucide-react';
 import { cn } from './lib/utils';
+import { getAccessState, TABS_BLOQUEADAS_NO_TRIAL } from './lib/access';
 import { supabase, isConfigured, clearSupabaseAuth, isRefreshTokenError } from './lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { StoreSettings as StoreSettingsType, ProductReview, Profile, AppLegalSettings } from './types';
@@ -734,10 +735,12 @@ function AppContent() {
       }
     } else if (data) {
       setProfile(data);
-      // If not admin and no access key, force profile tab
-      if (data.role !== 'admin' && (!data.access_key_code || !data.whatsapp)) {
+      // Sem acesso liberado (ou sem WhatsApp): força a aba de perfil
+      const { hasAccess: liberado, isAdmin: ehAdmin } = getAccessState(data, session.user.email);
+      const voltandoDoPagamento = new URLSearchParams(window.location.search).get('assinatura') === 'retorno';
+      if (!ehAdmin && (!liberado || !data.whatsapp)) {
         setActiveTab('profile');
-      } else if (activeTab === 'profile' && (data.role === 'admin' || (data.access_key_code && data.whatsapp))) {
+      } else if (activeTab === 'profile' && !voltandoDoPagamento && (ehAdmin || (liberado && data.whatsapp))) {
         // Default to campaigns if access is granted and on profile
         setActiveTab('campaigns');
       }
@@ -804,24 +807,15 @@ function AppContent() {
   }
 
   const renderContent = () => {
-    // Access control check
-    const isAdmin = profile?.role === 'admin' || 
-      session?.user.email === 'anderlevita@gmail.com';
-    const isBlocked = !!profile?.is_blocked;
-    
-    const isTrial = profile?.status_pagamento === 'TRIAL';
-    const isStarter = profile?.status_pagamento === 'STARTER';
-    const vencimentoDate = profile?.vencimento ? new Date(profile.vencimento) : null;
-    const isExpired = vencimentoDate && vencimentoDate.getTime() < new Date().getTime();
-    
-    const hasAccess = isAdmin || ((!!profile?.access_key_code || ['pro', 'starter', 'trial'].includes(profile?.plano_tipo)) && !isBlocked && !isExpired);
-    
+    // Access control check (regras centralizadas em lib/access.ts)
+    const { hasAccess, isTrial, isAdmin } = getAccessState(profile, session?.user.email);
+
     if (!hasAccess && activeTab !== 'profile') {
       return <ProfileScreen />;
     }
 
-    // Starter/Trial plan restrictions
-    if ((isStarter || isTrial) && (activeTab === 'routes' || activeTab === 'simulation')) {
+    // Trial: Rotas e Simulação ficam para o plano Mensal
+    if (isTrial && TABS_BLOQUEADAS_NO_TRIAL.includes(activeTab)) {
       return <Campaigns />;
     }
 

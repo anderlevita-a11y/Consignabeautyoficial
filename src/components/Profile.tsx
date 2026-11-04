@@ -36,6 +36,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { useBackButton } from '../hooks/useBackButton';
 import { clearAllDraftsForUser } from '../lib/draftStore';
 import { BackHandler } from '../lib/backHandler';
+import { getAccessState } from '../lib/access';
+import { SubscriptionCard } from './SubscriptionCard';
 
 export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
@@ -454,7 +456,8 @@ export function ProfileScreen() {
     });
   };
 
-  const isTrial = profile?.status_pagamento === 'TRIAL';
+  const acesso = getAccessState(profile);
+  const isTrial = acesso.isTrial;
   const trialEnd = isTrial && profile?.vencimento ? new Date(profile.vencimento) : null;
   const now = new Date();
   const diffTime = trialEnd ? trialEnd.getTime() - now.getTime() : 0;
@@ -473,7 +476,7 @@ export function ProfileScreen() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 pb-12">
       {/* Aviso de Liberação Trial */}
-      {profile?.role !== 'admin' && !profile?.access_key_code && !['pro', 'starter', 'trial'].includes(profile?.plano_tipo) && (
+      {!acesso.isAdmin && !acesso.isTrial && !acesso.isMensal && !profile?.access_key_code && (
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-4 shadow-sm animate-pulse">
           <div className="bg-blue-100 p-3 rounded-full">
             <ShieldAlert className="w-8 h-8 text-blue-600" />
@@ -523,7 +526,7 @@ export function ProfileScreen() {
           <div>
             <p className="font-bold text-sm">Acesso Restrito</p>
             <p className="text-xs opacity-80">
-              Seu cadastro está bloqueado por inadimplência. Entre em contato com o administrador pelo fone: <a href="tel:47997626121" className="font-bold underline">47 997626121</a>.
+              {profile?.blocked_reason === 'manual' ? 'Seu cadastro está bloqueado pelo administrador.' : 'Seu acesso está bloqueado por falta de pagamento. Assine o Plano Mensal abaixo para liberar automaticamente.'} Dúvidas? Fale com o administrador pelo fone: <a href="tel:47997626121" className="font-bold underline">47 997626121</a>.
               <a 
                 href="https://wa.me/5547997626121" 
                 target="_blank" 
@@ -537,6 +540,8 @@ export function ProfileScreen() {
           </div>
         </div>
       )}
+      {profile && <SubscriptionCard profile={profile} onUpdated={setProfile} />}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-[#4a1d33]">Meu Cadastro</h2>
@@ -819,7 +824,12 @@ export function ProfileScreen() {
         </button>
       </div>
 
-      {/* Sessão de Pagamento da Assinatura do Sistema (PIX) */}
+      {/* Pagamento manual via PIX (alternativa à assinatura automática) */}
+      <details className="group">
+        <summary className="cursor-pointer select-none text-xs font-bold text-zinc-500 hover:text-zinc-700 px-1 py-2 list-none flex items-center gap-2">
+          <span className="transition-transform group-open:rotate-90">▸</span>
+          Prefere pagar por PIX manual e enviar comprovante? (liberação feita pelo administrador)
+        </summary>
       <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
         <div className="p-4 sm:p-6 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -842,7 +852,7 @@ export function ProfileScreen() {
             <div className="space-y-1">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block">Status da Conta</span>
               <p className="text-base font-bold text-zinc-800 flex items-center gap-2">
-                {profile?.role === 'admin' ? 'Acesso Total Administrador' : (['pro', 'starter'].includes(profile?.plano_tipo) ? 'Assinatura Mensal Ativa' : (isTrial ? 'Período de Teste Ativo' : (profile?.access_key_code ? 'Assinatura Liberada' : 'Aguardando Ativação')))}
+                {profile?.role === 'admin' ? 'Acesso Total Administrador' : (acesso.isMensal ? 'Assinatura Mensal Ativa' : (isTrial ? 'Período de Teste Ativo' : (profile?.access_key_code ? 'Assinatura Liberada' : 'Aguardando Ativação')))}
               </p>
               {profile?.vencimento && (
                 <p className="text-xs text-zinc-500">
@@ -863,7 +873,7 @@ export function ProfileScreen() {
               <input 
                 type="text" 
                 readOnly
-                value={profile?.access_key_code || (['pro', 'starter'].includes(profile?.plano_tipo) ? 'ASSINATURA_MENSAL' : 'LIBERACAO_PENDENTE')} 
+                value={profile?.access_key_code || (acesso.isMensal ? 'ASSINATURA_MENSAL' : 'LIBERACAO_PENDENTE')} 
                 className="w-full bg-white border border-zinc-200 rounded-xl px-3.5 py-2 text-xs font-mono text-zinc-600 outline-none shadow-sm cursor-not-allowed"
               />
               <p className="text-[10px] text-zinc-400">Liberação confirmada após envio do comprovante.</p>
@@ -1133,6 +1143,7 @@ export function ProfileScreen() {
           </div>
         </div>
       </section>
+      </details>
 
       {/* Comportamento do Aplicativo no Celular / Android */}
       <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
