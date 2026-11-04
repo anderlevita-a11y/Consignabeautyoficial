@@ -118,7 +118,6 @@ export function SubscriptionCard({ profile, onUpdated }: { profile: any; onUpdat
     }
   };
 
-  if (acesso.isAdmin) return null;
 
   return (
     <section className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
@@ -144,6 +143,11 @@ export function SubscriptionCard({ profile, onUpdated }: { profile: any; onUpdat
       </div>
 
       <div className="p-4 sm:p-6 space-y-5">
+        {acesso.isAdmin && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <strong>Modo teste do administrador:</strong> você já tem acesso total. Este card aparece aqui só para testar o fluxo de pagamento — se pagar, a cobrança é real.
+          </p>
+        )}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <div className="flex items-baseline gap-1">
